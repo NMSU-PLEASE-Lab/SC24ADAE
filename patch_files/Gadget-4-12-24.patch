@@ -1,0 +1,305 @@
+diff -ruN Gadget-2.0.7/Gadget2/accel.c ../Gadget-2.0.7/Gadget2/accel.c
+--- Gadget-2.0.7/Gadget2/accel.c	2005-05-22 10:33:34.000000000 -0500
++++ ../Gadget-2.0.7/Gadget2/accel.c	2023-09-03 00:43:14.802784000 -0400
+@@ -7,6 +7,10 @@
+ #include "allvars.h"
+ #include "proto.h"
+ 
++#ifdef APPEKG
++#include "appekg.h"
++#endif
++
+ /*! \file accel.c
+  *  \brief driver routine to carry out force computation
+  */
+@@ -23,6 +27,10 @@
+  */
+ void compute_accelerations(int mode)
+ {
++#ifdef APPEKG
++  EKG_BEGIN_HEARTBEAT(3,1);
++#endif
++
+   double tstart, tend;
+ 
+   if(ThisTask == 0)
+@@ -93,4 +101,9 @@
+       printf("force computation done.\n");
+       fflush(stdout);
+     }
++
++#ifdef APPEKG
++    EKG_END_HEARTBEAT(3);
++#endif
++
+ }
+diff -ruN Gadget-2.0.7/Gadget2/domain.c ../Gadget-2.0.7/Gadget2/domain.c
+--- Gadget-2.0.7/Gadget2/domain.c	2005-05-22 10:33:34.000000000 -0500
++++ ../Gadget-2.0.7/Gadget2/domain.c	2023-09-03 00:37:55.115345164 -0400
+@@ -7,7 +7,9 @@
+ #include "allvars.h"
+ #include "proto.h"
+ 
+-
++#if defined APPEKG
++#include "appekg.h"
++#endif
+ 
+ /*! \file domain.c
+  *  \brief code for domain decomposition
+@@ -61,6 +63,11 @@
+  */
+ void domain_Decomposition(void)
+ {
++
++#ifdef APPEKG
++  EKG_BEGIN_HEARTBEAT(2,1);
++#endif
++
+   double t0, t1;
+ 
+ #ifdef PMGRID
+@@ -141,6 +148,10 @@
+       free(Key);
+     }
+ 
++#ifdef APPEKG
++    EKG_END_HEARTBEAT(2);
++#endif
++
+ }
+ 
+ 
+Binary files Gadget-2.0.7/Gadget2/Gadget2.appekg and ../Gadget-2.0.7/Gadget2/Gadget2.appekg differ
+diff -ruN Gadget-2.0.7/Gadget2/main.c ../Gadget-2.0.7/Gadget2/main.c
+--- Gadget-2.0.7/Gadget2/main.c	2005-05-22 10:33:34.000000000 -0500
++++ ../Gadget-2.0.7/Gadget2/main.c	2023-09-20 00:20:10.173259718 -0400
+@@ -7,6 +7,9 @@
+ #include "allvars.h"
+ #include "proto.h"
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
+ 
+ /*! \file main.c
+  *  \brief start of the program
+@@ -27,6 +30,16 @@
+   MPI_Comm_rank(MPI_COMM_WORLD, &ThisTask);
+   MPI_Comm_size(MPI_COMM_WORLD, &NTask);
+ 
++#if defined APPEKG
++  int appekg_myrank;
++  MPI_Comm_rank(MPI_COMM_WORLD, &appekg_myrank);
++  EKG_INITIALIZE(4, 1, 3, 0, appekg_myrank, 1);
++  EKG_NAME_HEARTBEAT(1,"FindNextSyncPoint");
++  EKG_NAME_HEARTBEAT(2,"DomainDecomposition");
++  EKG_NAME_HEARTBEAT(3,"Computeaccelerations");
++  EKG_NAME_HEARTBEAT(4,"AdvanceTimesteps");
++#endif
++ 
+   if(NTask <= 1)
+     {
+       if(ThisTask == 0)
+@@ -72,6 +85,10 @@
+ 
+   MPI_Finalize();		/* clean up & finalize MPI */
+ 
++#if defined APPEKG
++  EKG_FINALIZE();
++#endif
++
+   return 0;
+ }
+ 
+diff -ruN Gadget-2.0.7/Gadget2/Makefile ../Gadget-2.0.7/Gadget2/Makefile
+--- Gadget-2.0.7/Gadget2/Makefile	2006-01-12 10:09:05.000000000 -0500
++++ ../Gadget-2.0.7/Gadget2/Makefile	2023-12-12 11:47:11.966971315 -0500
+@@ -7,9 +7,20 @@
+ # Look at end of file for a brief guide to the compile-time options.   
+ #----------------------------------------------------------------------
+ 
++#--------------------------------------- To use APPEKG, set DO_APPEKG to ON
++APPEKGDIR = /anvil/projects/x-cis230165/tools/ghappekg
++DO_APPEKG = OFF
++
++ifeq ($(DO_APPEKG),ON)
++APPEKGCFLAGS = -DAPPEKG -I${APPEKGDIR} -fopenmp
++APPEKGLDOBJ = -L${APPEKGDIR} -lappekg -lpthread -lrt
++else
++APPEKGCFLAGS =
++APPEKGLDOBJ =
++endif
+ 
+ #--------------------------------------- Basic operation mode of code
+-OPT   +=  -DPERIODIC 
++#OPT   +=  -DPERIODIC 
+ OPT   +=  -DUNEQUALSOFTENINGS
+ 
+ 
+@@ -28,7 +39,7 @@
+ 
+ #--------------------------------------- Single/Double Precision
+ #OPT   +=  -DDOUBLEPRECISION      
+-#OPT   +=  -DDOUBLEPRECISION_FFTW      
++OPT   +=  -DDOUBLEPRECISION_FFTW      
+ 
+ 
+ #--------------------------------------- Time integration options
+@@ -40,7 +51,7 @@
+ 
+ 
+ #--------------------------------------- Output 
+-OPT   +=  -DHAVE_HDF5  
++#OPT   +=  -DHAVE_HDF5  
+ #OPT   +=  -DOUTPUTPOTENTIAL
+ #OPT   +=  -DOUTPUTACCELERATION
+ #OPT   +=  -DOUTPUTCHANGEOFENTROPY
+@@ -81,7 +92,7 @@
+ 
+ CC       =  mpicc               # sets the C-compiler
+ OPTIMIZE =  -O2 -Wall -g        # sets optimization and warning flags
+-MPICHLIB =  -lmpich
++#MPICHLIB =  -lmpich
+ 
+ 
+ #--------------------------------------- Select target computer
+@@ -99,15 +110,15 @@
+ #--------------------------------------- Adjust settings for target computer
+ 
+ ifeq ($(SYSTYPE),"MPA")
+-CC       =  mpicc   
+-OPTIMIZE =  -O3 -Wall
+-GSL_INCL =  -I/usr/common/pdsoft/include
+-GSL_LIBS =  -L/usr/common/pdsoft/lib  -Wl,"-R /usr/common/pdsoft/lib"
+-FFTW_INCL= 
+-FFTW_LIBS= 
+-MPICHLIB =
+-HDF5INCL =  
+-HDF5LIB  =  -lhdf5 -lz 
++CC       =  mpicc
++OPTIMIZE = -p #-O3 -Wall
++GSL_INCL =  -I/apps/spack/anvil/apps/gsl/2.4-gcc-8.4.1-exxsoc2/include/
++GSL_LIBS =  -L/apps/spack/anvil/apps/gsl/2.4-gcc-8.4.1-exxsoc2/lib  -Wl,"-R /usr/common/pdsoft/lib"
++FFTW_INCL= -I/apps/spack/anvil/apps/fftw/2.1.5-gcc-8.4.1-cac36sv/include
++FFTW_LIBS= -L/apps/spack/anvil/apps/fftw/2.1.5-gcc-8.4.1-cac36sv/lib
++#MPICHLIB =
++HDF5INCL = -I/apps/spack/anvil/apps/hdf5/1.10.7-gcc-8.4.1-yh67xay/include
++HDF5LIB  = -L/apps/spack/anvil/apps/hdf5/1.10.7-gcc-8.4.1-yh67xay/lib -lhdf5 -lz
+ endif
+ 
+ 
+@@ -222,7 +233,7 @@
+ INCL   = allvars.h  proto.h  tags.h  Makefile
+ 
+ 
+-CFLAGS = $(OPTIONS) $(GSL_INCL) $(FFTW_INCL) $(HDF5INCL)
++CFLAGS = $(OPTIONS) $(GSL_INCL) $(FFTW_INCL) $(HDF5INCL) ${APPEKGCFLAGS}
+ 
+ 
+ ifeq (NOTYPEPREFIX_FFTW,$(findstring NOTYPEPREFIX_FFTW,$(OPT)))    # fftw installed with type prefix?
+@@ -239,7 +250,7 @@
+ LIBS   =   $(HDF5LIB) -g  $(MPICHLIB)  $(GSL_LIBS) -lgsl -lgslcblas -lm $(FFTW_LIB) 
+ 
+ $(EXEC): $(OBJS) 
+-	$(CC) $(OBJS) $(LIBS)   -o  $(EXEC)  
++	$(CC) $(OBJS) ${APPEKGCFLAGS} $(LIBS)   -o  $(EXEC)  $(APPEKGLDOBJ) 
+ 
+ $(OBJS): $(INCL) 
+ 
+diff -ruN Gadget-2.0.7/Gadget2/parameterfiles/galaxy.param ../Gadget-2.0.7/Gadget2/parameterfiles/galaxy.param
+--- Gadget-2.0.7/Gadget2/parameterfiles/galaxy.param	2005-05-02 12:58:31.000000000 -0500
++++ ../Gadget-2.0.7/Gadget2/parameterfiles/galaxy.param	2024-02-28 20:47:03.556781934 -0500
+@@ -1,6 +1,6 @@
+ %  Relevant files
+ 
+-InitCondFile  	   ICs/galaxy_littleendian.dat
++InitCondFile  	   ICs/ic-s12.0
+ OutputDir          galaxy/
+ 
+ EnergyFile         energy.txt
+@@ -34,7 +34,7 @@
+ %  Caracteristics of run
+ 
+ TimeBegin           0.0        % Begin of the simulation
+-TimeMax	            3.0        % End of the simulation
++TimeMax	            2.0        % End of the simulation
+ 
+ Omega0	              0
+ OmegaLambda           0
+diff -ruN Gadget-2.0.7/Gadget2/run.c ../Gadget-2.0.7/Gadget2/run.c
+--- Gadget-2.0.7/Gadget2/run.c	2006-04-16 07:38:53.000000000 -0400
++++ ../Gadget-2.0.7/Gadget2/run.c	2024-02-08 16:30:10.051532188 -0500
+@@ -8,6 +8,10 @@
+ #include "allvars.h"
+ #include "proto.h"
+ 
++#ifdef APPEKG
++#include "appekg.h"
++#endif
++
+ /*! \file run.c
+  *  \brief  iterates over timesteps, main loop
+  */
+@@ -150,6 +154,11 @@
+  */
+ void find_next_sync_point_and_drift(void)
+ {
++
++#ifdef APPEKG
++  EKG_BEGIN_HEARTBEAT(1,1);
++#endif
++
+   int n, min, min_glob, flag, *temp;
+   double timeold;
+   double t0, t1;
+@@ -234,6 +243,11 @@
+     All.Time = All.TimeBegin + All.Ti_Current * All.Timebase_interval;
+ 
+   All.TimeStep = All.Time - timeold;
++
++#ifdef APPEKG
++  EKG_END_HEARTBEAT(1);
++#endif
++
+ }
+ 
+ 
+diff -ruN Gadget-2.0.7/Gadget2/timestep.c ../Gadget-2.0.7/Gadget2/timestep.c
+--- Gadget-2.0.7/Gadget2/timestep.c	2006-04-16 05:09:56.000000000 -0400
++++ ../Gadget-2.0.7/Gadget2/timestep.c	2023-09-03 00:28:15.796947688 -0400
+@@ -6,6 +6,10 @@
+ #include "allvars.h"
+ #include "proto.h"
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ /*! \file timestep.c 
+  *  \brief routines for 'kicking' particles in momentum space and assigning new timesteps
+  */
+@@ -23,6 +27,11 @@
+  */
+ void advance_and_find_timesteps(void)
+ {
++
++#ifdef APPEKG
++  EKG_BEGIN_HEARTBEAT(4,1);
++#endif
++  
+   int i, j, no, ti_step, ti_min, tend, tstart;
+   double dt_entr, dt_entr2, dt_gravkick, dt_hydrokick, dt_gravkick2, dt_hydrokick2, t0, t1;
+   double minentropy, aphys;
+@@ -406,6 +415,11 @@
+ 
+   t1 = second();
+   All.CPU_TimeLine += timediff(t0, t1);
++
++#ifdef APPEKG
++  EKG_END_HEARTBEAT(4);
++#endif
++
+ }
+ 
+ 

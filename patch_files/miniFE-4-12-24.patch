@@ -1,0 +1,808 @@
+diff -ruN miniFE-2.2.0/openmp/src/cg_solve.hpp ../miniFE-2.2.0/openmp/src/cg_solve.hpp
+--- miniFE-2.2.0/openmp/src/cg_solve.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/cg_solve.hpp	2023-09-20 00:21:36.669870000 -0400
+@@ -36,6 +36,7 @@
+ 
+ #include <outstream.hpp>
+ 
++
+ namespace miniFE {
+ 
+ template<typename Scalar>
+@@ -187,7 +188,7 @@
+         my_cg_times[DOT] = tDOT;
+         my_cg_times[MATVEC] = tMATVEC;
+         my_cg_times[TOTAL] = mytimer() - total_time;
+-        return;
++	return;
+       }
+       else brkdown_tol = 0.1 * p_ap_dot;
+     }
+@@ -200,6 +201,7 @@
+             daxpby(-alpha, Ap, one, r); TOCK(tWAXPY);
+ 
+     num_iters = k;
++  
+   }
+ 
+   my_cg_times[WAXPY] = tWAXPY;
+diff -ruN miniFE-2.2.0/openmp/src/CSRMatrix.hpp ../miniFE-2.2.0/openmp/src/CSRMatrix.hpp
+--- miniFE-2.2.0/openmp/src/CSRMatrix.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/CSRMatrix.hpp	2023-10-24 18:35:09.047478000 -0400
+@@ -35,6 +35,11 @@
+ #include <mpi.h>
+ #endif
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
++
+ namespace miniFE {
+ 
+ template<typename Scalar,
+@@ -94,14 +99,28 @@
+ 
+     #pragma omp parallel for
+     for(MINIFE_GLOBAL_ORDINAL i = 0; i < nrows; ++i) {
++	#ifdef APPEKG
++        EKG_BEGIN_HEARTBEAT(10,1491760);
++        #endif
+ 	rows[i] = 0;
+ 	row_offsets[i] = 0;
++        #ifdef APPEKG
++        EKG_END_HEARTBEAT(10);
++        #endif
++
+     }
+ 
+     #pragma omp parallel for
+     for(MINIFE_GLOBAL_ORDINAL i = 0; i < (nrows * ncols_per_row); ++i) {
++	#ifdef APPEKG
++        EKG_BEGIN_HEARTBEAT(10,1491760);
++        #endif
++
+ 	packed_cols[i] = 0;
+ 	packed_coefs[i] = 0;
++        #ifdef APPEKG
++        EKG_END_HEARTBEAT(10);
++        #endif
+     }
+   }
+ 
+diff -ruN miniFE-2.2.0/openmp/src/exchange_externals.hpp ../miniFE-2.2.0/openmp/src/exchange_externals.hpp
+--- miniFE-2.2.0/openmp/src/exchange_externals.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/exchange_externals.hpp	2023-10-24 18:46:17.565955000 -0400
+@@ -39,6 +39,11 @@
+ 
+ #include <TypeTraits.hpp>
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
++
+ namespace miniFE {
+ 
+ template<typename MatrixType,
+@@ -115,6 +120,9 @@
+ 
+ #pragma omp parallel for
+   for(size_t i=0; i<total_to_be_sent; ++i) {
++    #ifdef APPEKG
++    EKG_BEGIN_HEARTBEAT(9,9870);
++    #endif
+ #ifdef MINIFE_DEBUG
+     //expensive index range-check:
+     if (elements_to_send[i] < 0 || elements_to_send[i] > x.coefs.size()) {
+@@ -122,6 +130,10 @@
+     }
+ #endif
+     send_buffer[i] = x.coefs[elements_to_send[i]];
++  #ifdef APPEKG
++  EKG_END_HEARTBEAT(9);
++  #endif
++
+   }
+ 
+   //
+diff -ruN miniFE-2.2.0/openmp/src/generate_matrix_structure.hpp ../miniFE-2.2.0/openmp/src/generate_matrix_structure.hpp
+--- miniFE-2.2.0/openmp/src/generate_matrix_structure.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/generate_matrix_structure.hpp	2023-10-08 23:38:16.921555000 -0400
+@@ -42,6 +42,10 @@
+ #include <mpi.h>
+ #endif
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ namespace miniFE {
+ 
+ template<typename MatrixType>
+@@ -105,6 +109,9 @@
+ 
+ 	#pragma omp parallel for
+ 	for(int r = 0; r < r_n; ++r) {
++		#ifdef APPEKG
++                EKG_BEGIN_HEARTBEAT(1,86000);
++                #endif
+ 		int iz = r / (xy_width) + box[2][0];
+ 		int iy = (r / x_width) % y_width + box[1][0];
+ 		int ix = r % x_width + box[0][0];
+@@ -133,6 +140,9 @@
+                        	}
+                        	row_offset_ptr[r+1] = nnz;
+ 
++	#ifdef APPEKG
++        EKG_END_HEARTBEAT(1);
++        #endif
+ 	}
+ 
+   const MINIFE_GLOBAL_ORDINAL n = row_offsets.size() - 1;
+diff -ruN miniFE-2.2.0/openmp/src/main.cpp ../miniFE-2.2.0/openmp/src/main.cpp
+--- miniFE-2.2.0/openmp/src/main.cpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/main.cpp	2023-10-30 20:58:09.157280659 -0400
+@@ -35,6 +35,11 @@
+ 
+ #include <outstream.hpp>
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
++
+ #ifdef _OPENMP
+ #include <omp.h>
+ #endif
+@@ -62,6 +67,7 @@
+ #include <miniFE_no_info.hpp>
+ #endif
+ 
++
+ //The following macros should be specified as compile-macros in the
+ //makefile. They are defaulted here just in case...
+ #ifndef MINIFE_SCALAR
+@@ -71,7 +77,7 @@
+ #define MINIFE_LOCAL_ORDINAL int
+ #endif
+ #ifndef MINIFE_GLOBAL_ORDINAL
+-#define MINIFE_GLOBAL_ORDINAL int
++#define MINIFE_GLOBAL_ORDINAL int 
+ #endif
+ 
+ // ************************************************************************
+@@ -93,8 +99,22 @@
+ 
+   int numprocs = 1, myproc = 0;
+   miniFE::initialize_mpi(argc, argv, numprocs, myproc);
+-
+   miniFE::timer_type start_time = miniFE::mytimer();
++#if defined APPEKG
++  int appekg_myrank;
++  MPI_Comm_rank(MPI_COMM_WORLD, &appekg_myrank);
++  EKG_INITIALIZE(10, 1, 1, 0, appekg_myrank, 1);
++  EKG_NAME_HEARTBEAT(1,"GenerateMatrix");
++  EKG_NAME_HEARTBEAT(2,"ImposeDirichlet");
++  EKG_NAME_HEARTBEAT(3,"UpdateVector(waxpby)");
++  EKG_NAME_HEARTBEAT(4,"ComputeDotProduct(dot)");
++  EKG_NAME_HEARTBEAT(5,"ComputeMatrixVector");
++  EKG_NAME_HEARTBEAT(6,"UpdateVector(daxpby)");
++  EKG_NAME_HEARTBEAT(7,"ComputeDotProduct(dot_r2)");
++  EKG_NAME_HEARTBEAT(8,"performLoop");
++  EKG_NAME_HEARTBEAT(9,"ExchangeExternals");
++  EKG_NAME_HEARTBEAT(10,"ReserveSpace");
++#endif
+ 
+ #ifdef MINIFE_DEBUG
+   outstream(numprocs, myproc);
+@@ -146,7 +166,6 @@
+     std::cout<<"One or more processors have 0 equations. Not currently supported. Exiting."<<std::endl;
+ 
+     miniFE::finalize_mpi();
+-
+     return 1;
+   }
+ 
+@@ -208,7 +227,9 @@
+ 
+ 
+   miniFE::finalize_mpi();
+-
++#if defined APPEKG
++   EKG_FINALIZE();
++#endif
+   return return_code;
+ }
+ 
+diff -ruN miniFE-2.2.0/openmp/src/Makefile ../miniFE-2.2.0/openmp/src/Makefile
+--- miniFE-2.2.0/openmp/src/Makefile	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/Makefile	2023-10-31 13:32:34.674880000 -0400
+@@ -5,11 +5,27 @@
+ MINIFE_TYPES =  \
+         -DMINIFE_SCALAR=double   \
+         -DMINIFE_LOCAL_ORDINAL=int      \
+-        -DMINIFE_GLOBAL_ORDINAL=int
++        -DMINIFE_GLOBAL_ORDINAL=long
+ 
+ MINIFE_MATRIX_TYPE = -DMINIFE_CSR_MATRIX
+ #MINIFE_MATRIX_TYPE = -DMINIFE_ELL_MATRIX
+ 
++
++#-----------------------------------------------------------------------
++# APPEKG Section
++# JEC: choose to build with APPEKG or not, and specify where
++#      to find APPEKG stuff
++APPEKGDIR = /anvil/projects/x-cis230165/tools/ghappekg 
++DO_APPEKG = ON
++
++ifeq ($(DO_APPEKG),ON)
++APPEKGCFLAGS = -DAPPEKG -I${APPEKGDIR}
++APPEKGLDOBJ = -L${APPEKGDIR} -lappekg -lpthread -lrt
++else
++APPEKGCFLAGS =
++APPEKGLDOBJ =
++endif
++
+ #-----------------------------------------------------------------------
+ 
+ CFLAGS = -O3 -fopenmp
+@@ -18,9 +34,9 @@
+ CPPFLAGS = -I. -I../utils -I../fem $(MINIFE_TYPES) \
+ 	$(MINIFE_MATRIX_TYPE) \
+ 	-DHAVE_MPI -DMPICH_IGNORE_CXX_SEEK \
+-	-DMINIFE_REPORT_RUSAGE
++	-DMINIFE_REPORT_RUSAGE ${APPEKGCFLAGS}
+ 
+-LDFLAGS=$(CFLAGS)
++LDFLAGS=$(CFLAGS) ${APPEKGLDOBJ}
+ LIBS=
+ 
+ # The MPICH_IGNORE_CXX_SEEK macro is required for some mpich versions,
+diff -ruN miniFE-2.2.0/openmp/src/make_local_matrix.hpp ../miniFE-2.2.0/openmp/src/make_local_matrix.hpp
+--- miniFE-2.2.0/openmp/src/make_local_matrix.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/make_local_matrix.hpp	2023-09-20 00:22:26.955743146 -0400
+@@ -37,6 +37,7 @@
+ #include <mpi.h>
+ #endif
+ 
++
+ namespace miniFE {
+ 
+ template<typename MatrixType>
+diff -ruN miniFE-2.2.0/openmp/src/perform_element_loop.hpp ../miniFE-2.2.0/openmp/src/perform_element_loop.hpp
+--- miniFE-2.2.0/openmp/src/perform_element_loop.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/perform_element_loop.hpp	2023-10-29 22:32:27.560471000 -0400
+@@ -39,6 +39,11 @@
+ #include <omp.h>
+ #endif
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
++
+ //#include "advisor-annotate.h"
+ 
+ namespace miniFE {
+@@ -79,14 +84,22 @@
+ 
+   #pragma omp parallel for shared (elemIDs)
+   for(MINIFE_GLOBAL_ORDINAL i=0; i < elemID_size; ++i) {
++    #ifdef APPEKG
++    EKG_BEGIN_HEARTBEAT(8,42860);
++    #endif
++
+     ElemData<GlobalOrdinal,Scalar> elem_data;
+     compute_gradient_values(elem_data.grad_vals);
+ 
+     get_elem_nodes_and_coords(mesh, elemIDs[i], elem_data);
+     compute_element_matrix_and_vector(elem_data);
+     sum_into_global_linear_system(elem_data, A, b);
++    #ifdef APPEKG
++    EKG_END_HEARTBEAT(8);
++    #endif
+   }
+ 
++
+ }
+ 
+ }//namespace miniFE
+diff -ruN miniFE-2.2.0/openmp/src/SparseMatrix_functions.hpp ../miniFE-2.2.0/openmp/src/SparseMatrix_functions.hpp
+--- miniFE-2.2.0/openmp/src/SparseMatrix_functions.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/SparseMatrix_functions.hpp	2023-10-29 22:32:58.843188230 -0400
+@@ -51,6 +51,10 @@
+ #include <mpi.h>
+ #endif
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ namespace miniFE {
+ 
+ template<typename MatrixType>
+@@ -67,10 +71,11 @@
+   MatrixInitOp<MatrixType> mat_init(rows, row_offsets, row_coords,
+                                  global_nodes_x, global_nodes_y, global_nodes_z,
+                                  global_nrows, mesh, M);
+-
++  #pragma omp parallel for
+   for(int i=0; i<mat_init.n; ++i) {
+     mat_init(i);
+   }
++
+ }
+ 
+ template<typename T,
+@@ -462,6 +467,9 @@
+ 
+   #pragma omp parallel for
+   for(MINIFE_GLOBAL_ORDINAL i=0; i < ROW_COUNT; ++i) {
++    #ifdef APPEKG
++    EKG_BEGIN_HEARTBEAT(2,34970);
++    #endif
+     GlobalOrdinal row = A.rows[i];
+ 
+     if (bc_rows.find(row) != bc_rows.end()) continue;
+@@ -481,6 +489,9 @@
+ 
+     #pragma omp atomic
+     b.coefs[i] -= sum*prescribed_value;
++    #ifdef APPEKG
++    EKG_END_HEARTBEAT(2);
++    #endif  
+   }
+ }
+ 
+@@ -517,6 +528,9 @@
+ 
+         #pragma omp parallel for
+         for(MINIFE_GLOBAL_ORDINAL row = 0; row < rows_size; ++row) {
++		#ifdef APPEKG
++                EKG_BEGIN_HEARTBEAT(5,217120);
++                #endif
+                 const MINIFE_GLOBAL_ORDINAL row_start = Arowoffsets[row];
+                 const MINIFE_GLOBAL_ORDINAL row_end   = Arowoffsets[row+1];
+ 
+@@ -528,7 +542,10 @@
+                 }
+ 
+                 ycoefs[row] = sum;
+-        }
++        #ifdef APPEKG
++        EKG_END_HEARTBEAT(5);
++        #endif
++	}
+ }
+ };
+ #elif defined(MINIFE_ELL_MATRIX)
+@@ -555,6 +572,10 @@
+ 
+   #pragma omp parallel for
+   for(int row=0; row<n; ++row) {
++  #ifdef APPEKG
++  EKG_BEGIN_HEARTBEAT(5,217120);
++  #endif
++
+     ScalarType sum = beta*ycoefs[row];
+ 
+     int row_start=row*row_len;
+@@ -565,6 +586,9 @@
+     }
+ 
+     ycoefs[row] = sum;
++    #ifdef APPEKG
++    EKG_END_HEARTBEAT(5);
++    #endif  
+   }
+ }
+ };
+diff -ruN miniFE-2.2.0/openmp/src/Vector_functions.hpp ../miniFE-2.2.0/openmp/src/Vector_functions.hpp
+--- miniFE-2.2.0/openmp/src/Vector_functions.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/openmp/src/Vector_functions.hpp	2023-10-24 18:40:49.817530762 -0400
+@@ -43,6 +43,10 @@
+ #include <TypeTraits.hpp>
+ #include <Vector.hpp>
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ #define MINIFE_MIN(X, Y)  ((X) < (Y) ? (X) : (Y))
+ 
+ namespace miniFE {
+@@ -156,24 +160,48 @@
+ 	if(alpha == 1.0) {
+   		#pragma omp parallel for
+   		for(int i=0; i<n; ++i) {
++			#ifdef APPEKG
++                        EKG_BEGIN_HEARTBEAT(3,222670);
++                        #endif
+     			wcoefs[i] = xcoefs[i];
+-  		}
++  		        #ifdef APPEKG
++                        EKG_END_HEARTBEAT(3);
++                        #endif
++		}
+   	} else {
+   		#pragma omp parallel for
+   		for(int i=0; i<n; ++i) {
++			#ifdef APPEKG
++                        EKG_BEGIN_HEARTBEAT(3,222670);
++                        #endif
+     			wcoefs[i] = alpha * xcoefs[i];
++			#ifdef APPEKG
++                        EKG_END_HEARTBEAT(3);
++                        #endif
+   		}
+   	}
+   } else {
+ 	if(alpha == 1.0) {
+   		#pragma omp parallel for
+   		for(int i=0; i<n; ++i) {
++			#ifdef APPEKG
++                        EKG_BEGIN_HEARTBEAT(3,151150);
++                        #endif
+     			wcoefs[i] = xcoefs[i] + beta * ycoefs[i];
++			#ifdef APPEKG
++                        EKG_END_HEARTBEAT(3);
++                        #endif
+   		}
+   	} else {
+   		#pragma omp parallel for
+   		for(int i=0; i<n; ++i) {
++			#ifdef APPEKG
++                        EKG_BEGIN_HEARTBEAT(3,151150);
++                        #endif
+     			wcoefs[i] = alpha * xcoefs[i] + beta * ycoefs[i];
++			#ifdef APPEKG
++                        EKG_END_HEARTBEAT(3);
++                        #endif
+   		}
+   	}
+   }
+@@ -198,28 +226,62 @@
+   if(alpha == 1.0 && beta == 1.0) {
+ 	  #pragma omp parallel for
+ 	  for(int i = 0; i < n; ++i) {
++            #ifdef APPEKG
++            EKG_BEGIN_HEARTBEAT(6,869400);
++            #endif
++
+ 	    ycoefs[i] += xcoefs[i];
+-  	  }
++  	    #ifdef APPEKG
++            EKG_END_HEARTBEAT(6);
++            #endif
++
++	  }
+   } else if (beta == 1.0) {
+ 	  #pragma omp parallel for
+ 	  for(int i = 0; i < n; ++i) {
++	    #ifdef APPEKG
++            EKG_BEGIN_HEARTBEAT(6,869400);
++            #endif
+ 	    ycoefs[i] += alpha * xcoefs[i];
+-  	  }
++  	    #ifdef APPEKG
++            EKG_END_HEARTBEAT(6);
++            #endif
++	  }
+   } else if (alpha == 1.0) {
+ 	  #pragma omp parallel for
+ 	  for(int i = 0; i < n; ++i) {
++	    #ifdef APPEKG
++            EKG_BEGIN_HEARTBEAT(6,869400);
++            #endif
+ 	    ycoefs[i] = xcoefs[i] + beta * ycoefs[i];
+-  	  }
++  	    #ifdef APPEKG
++            EKG_END_HEARTBEAT(6);
++            #endif
++	  }
+   } else if (beta == 0.0) {
+ 	  #pragma omp parallel for
+ 	  for(int i = 0; i < n; ++i) {
++            #ifdef APPEKG
++            EKG_BEGIN_HEARTBEAT(6,869400);
++            #endif
++
+ 	    ycoefs[i] = alpha * xcoefs[i];
+-  	  }
++  	    #ifdef APPEKG
++            EKG_END_HEARTBEAT(6);
++            #endif
++	  }
+   } else {
+ 	  #pragma omp parallel for
+ 	  for(int i = 0; i < n; ++i) {
++            #ifdef APPEKG
++            EKG_BEGIN_HEARTBEAT(6,869400);
++            #endif
+ 	    ycoefs[i] = alpha * xcoefs[i] + beta * ycoefs[i];
+-  	  }
++            #ifdef APPEKG
++            EKG_END_HEARTBEAT(6);
++            #endif
++
++	  }
+   }
+ 
+ }
+@@ -247,7 +309,13 @@
+ 
+   #pragma omp parallel for reduction(+:result)
+   for(int i=0; i<n; ++i) {
++    #ifdef APPEKG
++    EKG_BEGIN_HEARTBEAT(4,577800);
++    #endif
+     result += xcoefs[i] * ycoefs[i];
++    #ifdef APPEKG
++    EKG_END_HEARTBEAT(4);
++    #endif
+   }
+ 
+ #ifdef HAVE_MPI
+@@ -287,7 +355,14 @@
+ 
+   #pragma omp parallel for reduction(+:result)
+   for(int i=0; i<n; ++i) {
++    #ifdef APPEKG
++    EKG_BEGIN_HEARTBEAT(7,582510);
++    #endif
++
+     result += xcoefs[i] * xcoefs[i];
++  #ifdef APPEKG
++    EKG_END_HEARTBEAT(7);
++    #endif
+   }
+ 
+ #ifdef HAVE_MPI
+diff -ruN miniFE-2.2.0/ref/src/cg_solve.hpp ../miniFE-2.2.0/ref/src/cg_solve.hpp
+--- miniFE-2.2.0/ref/src/cg_solve.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/ref/src/cg_solve.hpp	2024-04-11 18:23:48.392777000 -0400
+@@ -36,6 +36,10 @@
+ 
+ #include <outstream.hpp>
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ namespace miniFE {
+ 
+ template<typename Scalar>
+@@ -150,6 +154,11 @@
+ 
+ 
+   for(LocalOrdinalType k=1; k <= max_iter && normr > tolerance; ++k) {
++    
++#ifdef APPEKG
++     EKG_BEGIN_HEARTBEAT(1,1);
++#endif
++
+     if (k == 1) {
+       TICK(); waxpby(one, r, zero, r, p); TOCK(tWAXPY);
+     }
+@@ -213,6 +222,11 @@
+ #endif
+ 
+     num_iters = k;
++
++#ifdef APPEKG
++    EKG_END_HEARTBEAT(1);
++#endif
++  
+   }
+ 
+ #ifdef HAVE_MPI
+diff -ruN miniFE-2.2.0/ref/src/main.cpp ../miniFE-2.2.0/ref/src/main.cpp
+--- miniFE-2.2.0/ref/src/main.cpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/ref/src/main.cpp	2024-04-11 18:23:48.394620000 -0400
+@@ -58,6 +58,10 @@
+ #include <miniFE_no_info.hpp>
+ #endif
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ //The following macros should be specified as compile-macros in the
+ //makefile. They are defaulted here just in case...
+ #ifndef MINIFE_SCALAR
+@@ -90,6 +94,17 @@
+   int numprocs = 1, myproc = 0;
+   miniFE::initialize_mpi(argc, argv, numprocs, myproc);
+ 
++#if defined APPEKG
++  int appekg_myrank;
++  MPI_Comm_rank(MPI_COMM_WORLD, &appekg_myrank);
++  EKG_INITIALIZE(5, 1, 1, 0, appekg_myrank, 1);
++  EKG_NAME_HEARTBEAT(1,"CGSolve");
++  EKG_NAME_HEARTBEAT(2,"AssembleElement");
++  EKG_NAME_HEARTBEAT(3,"InitMatrix");
++  EKG_NAME_HEARTBEAT(4,"ImposeDirichlet");
++  EKG_NAME_HEARTBEAT(5,"TransformToLocal");
++#endif
++
+ #ifdef HAVE_MPI
+ #ifdef USE_MPI_PCONTROL
+   MPI_Pcontrol(0);
+@@ -184,7 +199,12 @@
+ 
+   miniFE::finalize_mpi();
+ 
+-  return return_code;
++#if defined APPEKG
++   EKG_FINALIZE();
++#endif
++
++   return return_code;
++
+ }
+ 
+ void add_params_to_yaml(YAML_Doc& doc, miniFE::Parameters& params)
+diff -ruN miniFE-2.2.0/ref/src/Makefile ../miniFE-2.2.0/ref/src/Makefile
+--- miniFE-2.2.0/ref/src/Makefile	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/ref/src/Makefile	2024-04-11 18:23:48.322160674 -0400
+@@ -9,15 +9,31 @@
+ # MINIFE_MATRIX_TYPE = -DMINIFE_ELL_MATRIX
+ 
+ #-----------------------------------------------------------------------
++# APPEKG Section
++# JEC: choose to build with APPEKG or not, and specify where
++#      to find APPEKG stuff
++APPEKGDIR = /anvil/projects/x-cis230165/tools/AppEKG/ 
++DO_APPEKG = ON
++
++ifeq ($(DO_APPEKG),ON)
++APPEKGCFLAGS = -DAPPEKG -I${APPEKGDIR}
++APPEKGLDOBJ = -L${APPEKGDIR} -lappekg -lpthread -lrt
++else
++APPEKGCFLAGS =
++APPEKGLDOBJ =
++endif
++
++
++#-----------------------------------------------------------------------
+ 
+ CFLAGS = -O3 -g
+ CXXFLAGS = $(CFLAGS)
+ 
+ CPPFLAGS = -I. -I../utils -I../fem $(MINIFE_TYPES) $(MINIFE_MATRIX_TYPE) \
+ 	-DHAVE_MPI -DMPICH_IGNORE_CXX_SEEK \
+-	-DMINIFE_REPORT_RUSAGE
++	-DMINIFE_REPORT_RUSAGE ${APPEKGCFLAGS}
+ 
+-LDFLAGS=
++LDFLAGS= ${APPEKGLDOBJ}
+ LIBS=
+ 
+ CXX=mpicxx
+diff -ruN miniFE-2.2.0/ref/src/make_local_matrix.hpp ../miniFE-2.2.0/ref/src/make_local_matrix.hpp
+--- miniFE-2.2.0/ref/src/make_local_matrix.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/ref/src/make_local_matrix.hpp	2024-04-11 18:23:48.393371000 -0400
+@@ -37,6 +37,10 @@
+ #include <mpi.h>
+ #endif
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ namespace miniFE {
+ 
+ template<typename MatrixType>
+@@ -85,6 +89,11 @@
+   std::vector<GlobalOrdinal>& external_index = A.external_index;
+ 
+   for(size_t i=0; i<A.rows.size(); ++i) {
++
++#ifdef APPEKG
++    EKG_BEGIN_HEARTBEAT(5,143700);//478000);
++#endif    
++
+     GlobalOrdinal* Acols = NULL;
+     Scalar* Acoefs = NULL;
+     size_t row_len = 0;
+@@ -104,6 +113,10 @@
+         Acols[j] = -(Acols[j] + 1);
+       }
+     }
++#ifdef APPEKG
++    EKG_END_HEARTBEAT(5);
++#endif
++  
+   }
+ 
+   ////////////////////////////////////////////////////////////////////////
+diff -ruN miniFE-2.2.0/ref/src/perform_element_loop.hpp ../miniFE-2.2.0/ref/src/perform_element_loop.hpp
+--- miniFE-2.2.0/ref/src/perform_element_loop.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/ref/src/perform_element_loop.hpp	2024-04-11 18:23:48.394167730 -0400
+@@ -35,6 +35,10 @@
+ #include <Hex8_box_utils.hpp>
+ #include <Hex8_ElemData.hpp>
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ namespace miniFE {
+ 
+ template<typename GlobalOrdinal,
+@@ -78,6 +82,10 @@
+   timer_type t_gn = 0, t_ce = 0, t_si = 0;
+   timer_type t0 = 0;
+   for(size_t i=0; i<elemIDs.size(); ++i) {
++    
++#ifdef APPEKG
++   EKG_BEGIN_HEARTBEAT(2,9400);
++#endif
+     //Given an element-id, populate elem_data with the
+     //element's node_ids and nodal-coords:
+ 
+@@ -97,6 +105,10 @@
+     TICK();
+     sum_into_global_linear_system(elem_data, A, b);
+     TOCK(t_si);
++  
++#ifdef APPEKG
++  EKG_END_HEARTBEAT(2);
++#endif 
+   }
+ //std::cout << std::endl<<"get-nodes: " << t_gn << std::endl;
+ //std::cout << "compute-elems: " << t_ce << std::endl;
+diff -ruN miniFE-2.2.0/ref/src/SparseMatrix_functions.hpp ../miniFE-2.2.0/ref/src/SparseMatrix_functions.hpp
+--- miniFE-2.2.0/ref/src/SparseMatrix_functions.hpp	2017-11-22 18:28:04.000000000 -0500
++++ ../miniFE-2.2.0/ref/src/SparseMatrix_functions.hpp	2024-04-11 18:23:48.393774000 -0400
+@@ -51,6 +51,10 @@
+ #include <mpi.h>
+ #endif
+ 
++#if defined APPEKG
++#include "appekg.h"
++#endif
++
+ namespace miniFE {
+ 
+ template<typename MatrixType>
+@@ -69,7 +73,14 @@
+                                  global_nrows, mesh, M);
+ 
+   for(int i=0; i<mat_init.n; ++i) {
+-    mat_init(i);
++  
++#ifdef APPEKG
++     EKG_BEGIN_HEARTBEAT(3,19250);
++#endif
++      mat_init(i);
++#ifdef APPEKG
++     EKG_END_HEARTBEAT(3);
++#endif
+   }
+ }
+ 
+@@ -458,6 +469,11 @@
+   }
+ 
+   for(size_t i=0; i<A.rows.size(); ++i) {
++  
++#ifdef APPEKG
++    EKG_BEGIN_HEARTBEAT(4,42900);
++#endif	  
++
+     GlobalOrdinal row = A.rows[i];
+ 
+     if (bc_rows.find(row) != bc_rows.end()) continue;
+@@ -476,6 +492,9 @@
+     }
+ 
+     b.coefs[i] -= sum*prescribed_value;
++#ifdef APPEKG
++    EKG_END_HEARTBEAT(4);
++#endif
+   }
+ }
+ 
+Binary files miniFE-2.2.0/ref/utils/.utils.cpp.swp and ../miniFE-2.2.0/ref/utils/.utils.cpp.swp differ

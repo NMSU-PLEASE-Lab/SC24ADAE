@@ -1,0 +1,390 @@
+diff -ruN PENNANT/.git/config ../PENNANT/.git/config
+--- PENNANT/.git/config	2024-04-13 02:09:02.082259122 -0400
++++ ../PENNANT/.git/config	2023-09-09 18:55:21.089696160 -0400
+@@ -4,7 +4,7 @@
+ 	bare = false
+ 	logallrefupdates = true
+ [remote "origin"]
+-	url = https://github.com/lanl/PENNANT.git
++	url = git@github.com:lanl/PENNANT.git
+ 	fetch = +refs/heads/*:refs/remotes/origin/*
+ [branch "master"]
+ 	remote = origin
+diff -ruN PENNANT/.git/hooks/fsmonitor-watchman.sample ../PENNANT/.git/hooks/fsmonitor-watchman.sample
+--- PENNANT/.git/hooks/fsmonitor-watchman.sample	2024-04-13 02:09:01.114686000 -0400
++++ ../PENNANT/.git/hooks/fsmonitor-watchman.sample	2023-09-09 18:55:19.995221000 -0400
+@@ -86,13 +86,12 @@
+ 	# recency index to select candidate nodes and "fields" to limit the
+ 	# output to file names only. Then we're using the "expression" term to
+ 	# further constrain the results.
+-	my $last_update_line = "";
+ 	if (substr($last_update_token, 0, 1) eq "c") {
+ 		$last_update_token = "\"$last_update_token\"";
+-		$last_update_line = qq[\n"since": $last_update_token,];
+ 	}
+ 	my $query = <<"	END";
+-		["query", "$git_work_tree", {$last_update_line
++		["query", "$git_work_tree", {
++			"since": $last_update_token,
+ 			"fields": ["name"],
+ 			"expression": ["not", ["dirname", ".git"]]
+ 		}]
+Binary files PENNANT/.git/index and ../PENNANT/.git/index differ
+diff -ruN PENNANT/.git/logs/HEAD ../PENNANT/.git/logs/HEAD
+--- PENNANT/.git/logs/HEAD	2024-04-13 02:09:02.059914080 -0400
++++ ../PENNANT/.git/logs/HEAD	2023-09-09 18:55:21.088653000 -0400
+@@ -1 +1 @@
+-0000000000000000000000000000000000000000 d7b770ecd5cc75bbb768554fcd9b2977e65b6e06 x-trecakov <x-trecakov@login03.anvil.rcac.purdue.edu> 1712988541 -0400	clone: from https://github.com/lanl/PENNANT.git
++0000000000000000000000000000000000000000 d7b770ecd5cc75bbb768554fcd9b2977e65b6e06 x-tahat <x-tahat@login07.anvil.rcac.purdue.edu> 1694300121 -0400	clone: from github.com:lanl/PENNANT.git
+diff -ruN PENNANT/.git/logs/refs/heads/master ../PENNANT/.git/logs/refs/heads/master
+--- PENNANT/.git/logs/refs/heads/master	2024-04-13 02:09:02.060551441 -0400
++++ ../PENNANT/.git/logs/refs/heads/master	2023-09-09 18:55:21.089060000 -0400
+@@ -1 +1 @@
+-0000000000000000000000000000000000000000 d7b770ecd5cc75bbb768554fcd9b2977e65b6e06 x-trecakov <x-trecakov@login03.anvil.rcac.purdue.edu> 1712988541 -0400	clone: from https://github.com/lanl/PENNANT.git
++0000000000000000000000000000000000000000 d7b770ecd5cc75bbb768554fcd9b2977e65b6e06 x-tahat <x-tahat@login07.anvil.rcac.purdue.edu> 1694300121 -0400	clone: from github.com:lanl/PENNANT.git
+diff -ruN PENNANT/.git/logs/refs/remotes/origin/HEAD ../PENNANT/.git/logs/refs/remotes/origin/HEAD
+--- PENNANT/.git/logs/refs/remotes/origin/HEAD	2024-04-13 02:09:01.889845353 -0400
++++ ../PENNANT/.git/logs/refs/remotes/origin/HEAD	2023-09-09 18:55:21.086932000 -0400
+@@ -1 +1 @@
+-0000000000000000000000000000000000000000 d7b770ecd5cc75bbb768554fcd9b2977e65b6e06 x-trecakov <x-trecakov@login03.anvil.rcac.purdue.edu> 1712988541 -0400	clone: from https://github.com/lanl/PENNANT.git
++0000000000000000000000000000000000000000 d7b770ecd5cc75bbb768554fcd9b2977e65b6e06 x-tahat <x-tahat@login07.anvil.rcac.purdue.edu> 1694300121 -0400	clone: from github.com:lanl/PENNANT.git
+diff -ruN PENNANT/Makefile ../PENNANT/Makefile
+--- PENNANT/Makefile	2024-04-13 02:09:02.083584568 -0400
++++ ../PENNANT/Makefile	2024-02-26 16:50:28.937457910 -0500
+@@ -10,19 +10,35 @@
+ 
+ BINARY := $(BUILDDIR)/$(PRODUCT)
+ 
++#-----------------------------------------------------------------------
++# APPEKG Section
++# JEC: choose to build with APPEKG or not, and specify where
++#      to find APPEKG stuff
++APPEKGDIR = /anvil/projects/x-cis230165/tools/ghappekg 
++DO_APPEKG = OFF
++
++ifeq ($(DO_APPEKG),ON)
++APPEKGCFLAGS = -DAPPEKG -I${APPEKGDIR}
++APPEKGLDOBJ = -L${APPEKGDIR} -lappekg -lpthread -lrt
++else
++APPEKGCFLAGS =
++APPEKGLDOBJ =
++endif
++
++
+ # begin compiler-dependent flags
+ #
+ # gcc flags:
+-#CXX := g++
+-#CXXFLAGS_DEBUG := -g
+-#CXXFLAGS_OPT := -O3
+-#CXXFLAGS_OPENMP := -fopenmp
++CXX := g++
++CXXFLAGS_DEBUG := -g
++CXXFLAGS_OPT := -O0
++CXXFLAGS_OPENMP := -fopenmp
+ 
+ # intel flags:
+-CXX := icpc
+-CXXFLAGS_DEBUG := -g
+-CXXFLAGS_OPT := -O3 -fast -fno-alias
+-CXXFLAGS_OPENMP := -openmp
++#CXX := icpc
++#CXXFLAGS_DEBUG := -g
++#CXXFLAGS_OPT := -O3 -fast -fno-alias
++#CXXFLAGS_OPENMP := -openmp
+ 
+ # pgi flags:
+ #CXX := pgCC
+@@ -42,6 +58,9 @@
+ CXX := mpicxx
+ CXXFLAGS += -DUSE_MPI
+ 
++CXXFLAGS += $(APPEKGCFLAGS)
++LDFLAGS += $(APPEKGLDOBJ)
++
+ # add openmp flags (comment out for serial build)
+ CXXFLAGS += $(CXXFLAGS_OPENMP)
+ LDFLAGS += $(CXXFLAGS_OPENMP)
+diff -ruN PENNANT/src/Driver.cc ../PENNANT/src/Driver.cc
+--- PENNANT/src/Driver.cc	2024-04-13 02:09:02.240200000 -0400
++++ ../PENNANT/src/Driver.cc	2024-04-04 15:24:17.486231000 -0400
+@@ -28,6 +28,7 @@
+ #include "Mesh.hh"
+ #include "Hydro.hh"
+ 
++
+ using namespace std;
+ 
+ 
+@@ -100,11 +101,9 @@
+         cycle += 1;
+ 
+         // get timestep
+-        calcGlobalDt();
+-
++	calcGlobalDt();
+         // begin hydro cycle
+-        hydro->doCycle(dt);
+-
++	hydro->doCycle(dt);
+         time += dt;
+ 
+         if (mype == 0 &&
+diff -ruN PENNANT/src/Hydro.cc ../PENNANT/src/Hydro.cc
+--- PENNANT/src/Hydro.cc	2024-04-13 02:09:02.242120516 -0400
++++ ../PENNANT/src/Hydro.cc	2023-10-07 23:49:55.312402432 -0400
+@@ -30,6 +30,10 @@
+ #include "QCS.hh"
+ #include "HydroBC.hh"
+ 
++#if defined APPEKG
++#include <appekg.h>
++#endif
++
+ using namespace std;
+ 
+ 
+@@ -196,6 +200,9 @@
+     // Begin hydro cycle
+     #pragma omp parallel for schedule(static)
+     for (int pch = 0; pch < numpch; ++pch) {
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(1,370);
++        #endif
+         int pfirst = mesh->pchpfirst[pch];
+         int plast = mesh->pchplast[pch];
+ 
+@@ -206,6 +213,9 @@
+         // ===== Predictor step =====
+         // 1. advance mesh to center of time step
+         advPosHalf(px0, pu0, dt, pxp, pfirst, plast);
++        #if defined APPEKG
++        EKG_END_HEARTBEAT(1);
++        #endif
+     } // for pch
+ 
+     #pragma omp parallel for schedule(static)
+@@ -219,27 +229,50 @@
+         copy(&zvol[zfirst], &zvol[zlast], &zvol0[zfirst]);
+ 
+         // 1a. compute new mesh geometry
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(2,1450);
++        #endif
+         mesh->calcCtrs(pxp, exp, zxp, sfirst, slast);
+         mesh->calcVols(pxp, zxp, sareap, svolp, zareap, zvolp,
+                 sfirst, slast);
+         mesh->calcSurfVecs(zxp, exp, ssurfp, sfirst, slast);
+         mesh->calcEdgeLen(pxp, elen, sfirst, slast);
+         mesh->calcCharLen(sareap, zdl, sfirst, slast);
+-
++        #if defined APPEKG
++        EKG_END_HEARTBEAT(2);
++        #endif
+         // 2. compute point masses
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(3,1450);
++        #endif
+         calcRho(zm, zvolp, zrp, zfirst, zlast);
+         calcCrnrMass(zrp, zareap, smf, cmaswt, sfirst, slast);
++        #if defined APPEKG
++        EKG_END_HEARTBEAT(3);
++        #endif
+ 
+         // 3. compute material state (half-advanced)
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(4,1450);
++        #endif
+         pgas->calcStateAtHalf(zr, zvolp, zvol0, ze, zwrate, zm, dt,
+                 zp, zss, zfirst, zlast);
+-
++        #if defined APPEKG
++        EKG_END_HEARTBEAT(4);
++        #endif
++	
+         // 4. compute forces
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(5,1450);
++        #endif
+         pgas->calcForce(zp, ssurfp, sfp, sfirst, slast);
+         tts->calcForce(zareap, zrp, zss, sareap, smf, ssurfp, sft,
+                 sfirst, slast);
+         qcs->calcForce(sfq, sfirst, slast);
+         sumCrnrForce(sfp, sfq, sft, cftot, sfirst, slast);
++	#if defined APPEKG
++        EKG_END_HEARTBEAT(5);
++        #endif
+     }  // for sch
+     mesh->checkBadSides();
+ 
+@@ -254,17 +287,34 @@
+ 
+         // 4a. apply boundary conditions
+         for (int i = 0; i < bcs.size(); ++i) {
++	    #if defined APPEKG
++            EKG_BEGIN_HEARTBEAT(6,1480);
++            #endif
+             int bfirst = bcs[i]->pchbfirst[pch];
+             int blast = bcs[i]->pchblast[pch];
+             bcs[i]->applyFixedBC(pu0, pf, bfirst, blast);
+-        }
++            #if defined APPEKG
++            EKG_END_HEARTBEAT(6);
++            #endif
++	}
+ 
+         // 5. compute accelerations
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(7,370);
++        #endif
+         calcAccel(pf, pmaswt, pap, pfirst, plast);
+-
++        #if defined APPEKG
++        EKG_END_HEARTBEAT(7);
++        #endif
+         // ===== Corrector step =====
+         // 6. advance mesh to end of time step
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(8,370);
++        #endif
+         advPosFull(px0, pu0, pap, dt, px, pu, pfirst, plast);
++	#if defined APPEKG
++        EKG_END_HEARTBEAT(8);
++        #endif
+     }  // for pch
+ 
+     resetDtHydro();
+@@ -277,14 +327,25 @@
+         int zlast = mesh->schzlast[sch];
+ 
+         // 6a. compute new mesh geometry
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(9,1440);
++        #endif
+         mesh->calcCtrs(px, ex, zx, sfirst, slast);
+         mesh->calcVols(px, zx, sarea, svol, zarea, zvol,
+                 sfirst, slast);
+-
++        #if defined APPEKG
++        EKG_END_HEARTBEAT(9);
++        #endif
+         // 7. compute work
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(10,1440);
++        #endif
+         fill(&zw[zfirst], &zw[zlast], 0.);
+         calcWork(sfp, sfq, pu0, pu, pxp, dt, zw, zetot,
+                 sfirst, slast);
++	#if defined APPEKG
++        EKG_END_HEARTBEAT(10);
++        #endif
+     }  // for sch
+     mesh->checkBadSides();
+ 
+@@ -294,14 +355,30 @@
+         int zlast = mesh->zchzlast[zch];
+ 
+         // 7a. compute work rate
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(11,370);
++        #endif
+         calcWorkRate(zvol0, zvol, zw, zp, dt, zwrate, zfirst, zlast);
+-
++        #if defined APPEKG
++        EKG_END_HEARTBEAT(11);
++        #endif
+         // 8. update state variables
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(12,370);
++        #endif
+         calcEnergy(zetot, zm, ze, zfirst, zlast);
+         calcRho(zm, zvol, zr, zfirst, zlast);
+-
++        #if defined APPEKG
++        EKG_END_HEARTBEAT(12);
++        #endif
+         // 9.  compute timestep for next cycle
++	#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(13,370);
++        #endif
+         calcDtHydro(zdl, zvol, zvol0, dt, zfirst, zlast);
++	#if defined APPEKG
++        EKG_END_HEARTBEAT(13);
++        #endif
+     }  // for zch
+ 
+ }
+@@ -635,7 +712,10 @@
+     double ek = 0.;
+     #pragma omp parallel for schedule(static)
+     for (int sch = 0; sch < mesh->numsch; ++sch) {
+-        int sfirst = mesh->schsfirst[sch];
++#if defined APPEKG
++        EKG_BEGIN_HEARTBEAT(14,7);
++#endif        
++	int sfirst = mesh->schsfirst[sch];
+         int slast = mesh->schslast[sch];
+         int zfirst = mesh->schzfirst[sch];
+         int zlast = mesh->schzlast[sch];
+@@ -650,6 +730,9 @@
+             ei += eichunk;
+             ek += ekchunk;
+         }
++#if defined APPEKG
++        EKG_END_HEARTBEAT(14);
++#endif
+     }
+ 
+     Parallel::globalSum(ei);
+diff -ruN PENNANT/src/main.cc ../PENNANT/src/main.cc
+--- PENNANT/src/main.cc	2024-04-13 02:09:02.375411220 -0400
++++ ../PENNANT/src/main.cc	2023-10-07 23:19:32.063215000 -0400
+@@ -18,6 +18,10 @@
+ #include "InputFile.hh"
+ #include "Driver.hh"
+ 
++#if defined APPEKG
++#include <appekg.h>
++#endif
++
+ using namespace std;
+ 
+ 
+@@ -25,6 +29,26 @@
+ {
+     Parallel::init();
+ 
++#if defined APPEKG
++    int appekg_myrank;
++    MPI_Comm_rank(MPI_COMM_WORLD, &appekg_myrank);
++    EKG_INITIALIZE(14, 1, 6, 0, appekg_myrank, 1);
++    EKG_NAME_HEARTBEAT(1,"AdvanceMeshtoCenter");
++    EKG_NAME_HEARTBEAT(2,"ComputeNewMeshGeometry");
++    EKG_NAME_HEARTBEAT(3,"ComputePointMasses");
++    EKG_NAME_HEARTBEAT(4,"ComputeMaterialState");
++    EKG_NAME_HEARTBEAT(5,"ComputeForces");
++    EKG_NAME_HEARTBEAT(6,"ApplyBoundaryConditions");
++    EKG_NAME_HEARTBEAT(7,"ComputeAccelerations");
++    EKG_NAME_HEARTBEAT(8,"AdvanceMeshtoEnd");
++    EKG_NAME_HEARTBEAT(9,"ComputeNewMeshGeometry");
++    EKG_NAME_HEARTBEAT(10,"ComputeWork");
++    EKG_NAME_HEARTBEAT(11,"ComputeWorkRate");
++    EKG_NAME_HEARTBEAT(12,"UpdateStateVariables");
++    EKG_NAME_HEARTBEAT(13,"ComputeTimestepforNextCycle");
++    EKG_NAME_HEARTBEAT(14,"writeEnergyCheck");
++#endif    
++
+     if (argc != 2) {
+         if (Parallel::mype == 0)
+             cerr << "Usage: pennant <filename>" << endl;
+@@ -45,7 +69,9 @@
+     drv.run();
+ 
+     Parallel::final();
+-
++#if defined APPEKG
++    EKG_FINALIZE();
++#endif
+     return 0;
+ 
+ }
