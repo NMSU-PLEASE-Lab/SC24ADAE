@@ -1,13 +1,28 @@
+"""
+Script Description:
 
-#
-#  The main goal of this script is to build a classification model for APPEKG data (time series data) by a well-known time series classification technique (shapelets). 
-# It first extracts the data from the APPEKG runs.
-# Then it pads the time series with lengths < longest one with zeros to make all-time series the same length.
-# The script reduces time series dimensionality using Piecewise Aggregate Approximation. 
-# Reference: https://tslearn.readthedocs.io/en/latest/gen_modules/piecewise/tslearn.piecewise.PiecewiseAggregateApproximation.html#tslearn.piecewise.PiecewiseAggregateApproximation
-# Then, it applies LearningShapelets from tslearn module to find the most representative shapelets.
-# Reference: https://tslearn.readthedocs.io/en/latest/gen_modules/shapelets/tslearn.shapelets.LearningShapelets.html#tslearn.shapelets.LearningShapelets
-#  
+This script is designed to optimize shapelet parameters—specifically, the number and size of shapelets—used for building a time series classification model based on APPEKG data.
+
+Overview:
+
+Data Processing: The script begins by extracting time series data from APPEKG runs, where each thread’s heartbeat metrics are considered as individual data points.
+Standardization: It standardizes the time series lengths by padding shorter series with zeros to equalize them to the length of the longest series in the dataset.
+Dimensionality Reduction: The script applies Piecewise Aggregate Approximation (PAA) to reduce the dimensionality of the time series, enhancing the efficiency of the subsequent analysis.
+PAA Documentation
+Shapelet Optimization: It employs the LearningShapelets method from the tslearn module, using cross_val_score to evaluate different shapelet configurations. The script selects the smallest parameters that yield the maximum cross-validation score.
+LearningShapelets Documentation
+Output: Results are saved in a spreadsheet detailing the optimal shapelet parameters (number and size) for each analyzed metric.
+
+Execution Instructions:
+
+Run the script from the command line by navigating to the script's directory and typing the following command:
+    python3 train_shapelet.py /path/to/application_runs <app_name>
+Directory Structure:
+
+Ensure the 'application_runs' directory contains appropriately named subdirectories ('APPEKG' and 'anomalousRun') for each application, which house the respective types of run data.
+
+
+"""
 
 from os import listdir
 import os
@@ -30,150 +45,341 @@ from tslearn.utils import to_time_series_dataset
 from pyts.preprocessing import MinMaxScaler
 from sklearn.model_selection import cross_val_score
 
-# It reads the output file of each run, to check if a run is good or anomalous.
-# The output files contain a line specifying the label of the run (good run or anomalous run)
-def getLabelFromOutput(run):
 
-    # for pennant 
-    if 'APPEKG' in run:
+def get_run_label(run_directory):
+    """
+    Extracts and returns the label of a computational run by inspecting its output files.
+    
+    This function searches through a specified directory for output files, reading their content
+    to determine whether the run is classified as 'good' or 'anomalous'. The classification is
+    extracted from predefined keywords within the files. Initial classification can also be
+    derived from specific substrings in the directory name itself.
+
+    Parameters:
+    - run_directory : str
+        The path to the directory that contains the output files of the run.
+
+    Returns:
+    - label : str
+        The determined label of the run ('good', 'anomalous', or 'undetermined' if no
+        conclusive indicators are found within the files).
+
+    Raises:
+    - FileNotFoundError: If the specified directory does not exist.
+    - IOError: If files within the directory cannot be opened or read.
+
+    Example:
+    - Calling get_run_label('/path/to/run_output') might return 'good' if the output
+      files or directory name indicate a successful run.
+    """
+    
+    # Attempt to classify based on directory name hints (PENNANT)
+    label = 'undetermined'
+    if 'APPEKG' in run_directory:
         label = 'good'
-    elif 'anomalousRuns' in run:
+    elif 'anomalousRuns' in run_directory:
         label = 'anomalous'
-    files = os.listdir(run)
+    
+    # Attempt to list files in the given directory
+    try:
+        files = os.listdir(run_directory)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"The directory {run_directory} does not exist.")
+
+    # Read through each file to find run classification
     for fileName in files:
-        if fileName.endswith('out'):
-            filePath = run + '/' + fileName
-            f1 = open(filePath, "r")
-            lines2 = f1.readlines()
-            for line in lines2:
-                if 'good run' in line:
-                    label = 'good'
-                elif 'anomalous run' in line:
-                    label = 'anomalous'
+        if fileName.endswith('.out'):  # Target specific output files
+            filePath = os.path.join(run_directory, fileName)
+            
+            # Open and read the file safely
+            try:
+                with open(filePath, "r") as file:
+                    for line in file:
+                        if 'good run' in line:
+                            return 'good'
+                        elif 'anomalous run' in line:
+                            return 'anomalous'
+            except IOError:
+                raise IOError(f"Error reading file {filePath}.")
+            
+            # Break after the first output file is processed to prevent overwriting of label
             break
+
     return label
 
-# find number of hbs. APPEKG prints out hbnames in a json file
-def getNumberHBs(dir_path):
-    found = False
-    for run in dir_path:
-        #root, _ = os.path.split(root)
-        files = os.listdir(run)
+def get_number_hbs(directory_path):
+    """
+    Counts and returns the number of heartbeat names (HBs) listed in the first JSON file encountered
+    in the provided directory path. This function is designed to parse files generated by APPEKG, 
+    which outputs heartbeat names under the key 'hbnames' in a JSON format.
+
+    Parameters:
+    - directory_path : list
+        A list of directory paths where the JSON files are expected to be found.
+
+    Returns:
+    - numberHB : int
+        The number of heartbeat names found in the first JSON file encountered. If no JSON file is found,
+        the function returns 0.
+
+    Raises:
+    - FileNotFoundError: If any listed directory does not exist or no JSON files are found.
+    - json.JSONDecodeError: If the JSON file is not properly formatted.
+
+    Example:
+    - numberHB = get_number_hbs(['/path/to/directory'])
+      This might return 5 if the first JSON file in '/path/to/directory' contains five heartbeat names.
+    """
+    
+    numberHB = 0  # Default return value if no HB names are found
+    json_found = False
+
+    for run_directory in directory_path:
+        # Check if the directory exists
+        if not os.path.exists(run_directory):
+            raise FileNotFoundError(f"The directory {run_directory} does not exist.")
+
+        # List files in the directory
+        files = os.listdir(run_directory)
+        
+        # Process each file in the directory
         for fileName in files:
             if fileName.endswith(".json"):
-                fname = run + '/' + fileName
-                print(fname)
-                with open(fname) as fp:
-                    data = json.load(fp)
-                    numberHB = len(data["hbnames"])
-                    found = True
-                break
-        if found:
-            break
+                file_path = os.path.join(run_directory, fileName)
+                json_found = True
+
+                # Safely open and read the JSON file
+                with open(file_path, 'r') as file:
+                    try:
+                        data = json.load(file)
+                        numberHB = len(data["hbnames"])
+                        break  # Exit after processing the first JSON file
+                    except json.JSONDecodeError:
+                        raise json.JSONDecodeError(f"Error decoding JSON in file {file_path}")
+
+        if json_found:
+            break  # Exit after the first directory containing a JSON file
+
+    if not json_found:
+        raise FileNotFoundError("No JSON files were found in the provided directories.")
 
     return numberHB
 
 
+def generate_aggregate_data(directory_path):
+    """
+    Processes CSV files within each subdirectory of a given directory path to generate aggregate data for heartbeat counts and durations. Each CSV file is assumed to represent a run containing multiple threads.
 
-# process all thread files and generate an aggregate dataframe
-# it finds values of hbcounts and durations and thier means of each csv file in a run
-# it returns a list of lists for (hbcount_i, hbduration_i, hbcount_i means, hbduration_i mean), i is hb Id.
-def generateAggregateData(dir_path):
-    numHB = getNumberHBs(dir_path)
-    hbCounts = []
-    hbDurations = []
-    hbCountMeans = []
-    hbDurMeans = []
-    for i in range(numHB):
-        hbCounts.append([])
-        hbDurations.append([])
-        hbCountMeans.append([])
-        hbDurMeans.append([])
-    
-    df =pd.DataFrame()
+    The function aggregates heartbeat counts and durations per thread and calculates mean values across these for each heartbeat identifier across all runs.
+
+    Parameters:
+    - directory_path : list
+        List of paths to directories containing CSV files for processing.
+
+    Returns:
+    - tuple : (hb_counts, hb_durations, hb_count_labels, hb_duration_labels, hb_count_means, hb_dur_means, runs)
+        Where each element in the tuple is a list of lists containing data aggregated across runs for each heartbeat identifier.
+
+    Notes:
+    - Each CSV file should contain columns named 'threadID', 'hbcount{i}', and 'hbduration{i}' where {i} is a heartbeat identifier.
+    - The function assumes that all heartbeat count and duration data are non-negative.
+    """
+    num_hb = get_number_hbs(directory_path)  # Expected to be a predefined function returning number of heartbeats to process
+    hb_counts, hb_durations = [], []
+    hb_count_labels, hb_duration_labels = [], []
+    hb_count_means, hb_dur_means = [], []
+    runs = []
+
+    # Initialize lists to collect data for each heartbeat
+    for i in range(num_hb):
+        hb_counts.append([])
+        hb_durations.append([])
+        hb_count_labels.append([])
+        hb_duration_labels.append([])
+        hb_count_means.append([])
+        hb_dur_means.append([])
     labels = []
-    for run in dir_path:
-        #root, _ = os.path.split(root)
+
+    # Process each directory path provided
+    for run in directory_path:
         files = os.listdir(run)
-        label = getLabelFromOutput(run)
-        for fileName in files:
-            if fileName.endswith(".csv"):
+        label = get_run_label(run)  # Assumes a function that fetches label of run
+        
+        for file_name in files:
+            if file_name.endswith(".csv"):
+                file_path = os.path.join(run, file_name)
+                df = pd.read_csv(file_path)
                 
-                df =pd.DataFrame()
-                fname = run + '/' + fileName
-                df = pd.read_csv(fname)
                 for d in df['threadID'].unique():
-                    labels.append(label)
+                    labels.append(label)  # Collect label for each unique thread ID
 
-                for hb in range(numHB):
-                    for d in df['threadID'].unique():
-                        
-                        x = df.loc[df['threadID'] == d, "hbcount" + str(hb+1)].tolist()
-                        xnew = [k for k in x if k != 0.0]
-                        xmean = sum(xnew)/len(xnew)
-                        hbCountMeans[hb].append(xmean)
-                        j = df.loc[df['threadID'] == d,"hbduration" + str(hb+1)].tolist()
-                        jnew = [k for k in j if k != 0.0]
-                        jmean = sum(jnew)/len(jnew)
-                        hbDurMeans[hb].append(jmean)
-                        hbCounts[hb].append(x)
-                        hbDurations[hb].append(j)
+                for hb in range(num_hb):
+                    hb_count_col = f"hbcount{hb+1}"
+                    hb_duration_col = f"hbduration{hb+1}"
 
-    if 'timemsec' in df.columns:
-        df.drop("timemsec", axis=1, inplace=True)
-    # if 'threadID' in df.columns:
-    #     df.drop("threadID", axis=1, inplace=True)
-    # df = df.replace(0, np.NaN)
-    return (hbCounts, hbDurations, labels, hbCountMeans, hbDurMeans)
+                    if hb_count_col in df.columns and hb_duration_col in df.columns:
+                        for d in df['threadID'].unique():
+                            runs.append(run)                      
+                            hb_count_data = df.loc[df['threadID'] == d, hb_count_col].dropna().tolist()
+                            hb_duration_data = df.loc[df['threadID'] == d, hb_duration_col].dropna().tolist()
+                            
+                            if hb_count_data:
+                                mean_count = sum(hb_count_data) / len(hb_count_data)
+                                hb_count_means[hb].append(mean_count)
+                                hb_counts[hb].append(hb_count_data)
+                                hb_count_labels[hb].append(label)
 
-# List good and anomalous APPEKG runs
-# The data dir contains 2 sub dirs (APPEKG and anomalousRuns). It skips the clean runs (no APPEKG)
-# It returns list of paths of runs
-def listSubDirectories(dir_path):
-    rPaths = []
+                            if hb_duration_data:
+                                mean_duration = sum(hb_duration_data) / len(hb_duration_data)
+                                hb_dur_means[hb].append(mean_duration)
+                                hb_durations[hb].append(hb_duration_data)
+                                hb_duration_labels[hb].append(label)
+
+    return (hb_counts, hb_durations, hb_count_labels, hb_duration_labels, hb_count_means, hb_dur_means, runs)
+
+def list_sub_directories(dir_path):
+    """
+    Lists directories corresponding to 'APPEKG' and 'anomalousRuns' runs within a given directory path,
+    excluding directories related to 'clean runs', 'newAnalysis', and 'ICs'.
+
+    This function searches through all subdirectories of the specified path, filtering out certain
+    directories based on specific naming conventions and adding relevant paths to the results.
+
+    Parameters:
+    - dir_path : str
+        The path to the directory from which subdirectories will be listed.
+
+    Returns:
+    - list of str
+        A list containing the paths of directories that are either 'APPEKG' or 'anomalousRuns' runs.
+    
+    Notes:
+    - This function skips directories that are deemed 'clean' (having "cleanRuns" in their path),
+      along with "newAnalysis" and "ICs".
+    - It also adjusts paths if they include directories related to 'CoMD' runs.
+    """
+    relevant_paths = []
+    excluded_keywords = ["cleanRuns", "newAnalysis", "ICs"]
+    comd_related = ["galaxy", "parameterfiles", "ICs", "CoMD"]
+
     for root, dirs, files in os.walk(dir_path, topdown=False):
-        if not dirs:
-            # skip clean runs (no APPEKG)
-            if "cleanRuns" in root:
-                continue
-            if "newAnalysis" in root:
-                continue
-            if "ICs" in root:
-                continue
-            # CoMD runs have a folder used for input
-            if "galaxy" in root or "parameterfiles" in root or "ICs" in root or "CoMD" in root:
-                root, _ = os.path.split(root)
-            rPaths.append(root)
-    return(rPaths)
+        # Filter out excluded directories
+        if any(keyword in root for keyword in excluded_keywords):
+            continue
+        
+        # Adjust path for CoMD related directories
+        if any(keyword in root for keyword in comd_related):
+            root, _ = os.path.split(root)
+        
+        relevant_paths.append(root)
 
-# change data to fit shapelet learning algorithm (all time sieres will same length)
-# it bads all time sieres < len of longest time series with 0s
-def makeDataFitShapelet(hbData):
-    hbData = to_time_series_dataset(hbData)
-    for t in hbData:
-        t[np.isnan(t)] = 0
-    return hbData
+    return relevant_paths
 
-# Split arrays or matrices into random train and test subsets.
-def splitData(data, labels, testSize):
+def make_data_fit_shapelet(hb_data):
+    """
+    Pads all time series in the dataset to the length of the longest time series. This normalization
+    is necessary to prepare data for shapelet learning algorithms, which require input time series
+    of uniform length.
+
+    Parameters:
+    - hb_data : array-like
+        A list or array of time series data where each time series may have a different length.
+
+    Returns:
+    - numpy.ndarray
+        A numpy array of shape (n_series, max_len), where n_series is the number of time series and
+        max_len is the length of the longest time series in the dataset. Shorter time series are
+        padded with zeros.
+
+    Notes:
+    - This function converts the input data into a tslearn-compatible time series dataset.
+    - Missing values (NaNs) within any time series are replaced with zeros.
+    """
+    # Convert the list of time series to a tslearn-compatible time series dataset
+    hb_data = to_time_series_dataset(hb_data)
+
+    # Pad shorter time series with zeros to ensure uniform length
+    for t in hb_data:
+        t[np.isnan(t)]=0
+
+    return hb_data
+
+def split_data(data, labels, test_size):
+    """
+    Splits the provided data into training and testing subsets.
+
+    This function wraps the sklearn `train_test_split` method to partition data and its corresponding labels
+    into train and test subsets, based on a specified proportion for the test set.
+
+    Parameters:
+    - data : array-like, shape (n_samples, n_features)
+        The input data to be split. Each row corresponds to a sample, and each column to a feature.
+    - labels : array-like, shape (n_samples,)
+        The target labels associated with the data.
+    - test_size : float or int
+        If float, should be between 0.0 and 1.0 and represent the proportion of the dataset to include in the test split.
+        If int, represents the absolute number of test samples.
+
+    Returns:
+    - X_train : array-like, shape (n_train_samples, n_features)
+        The subset of the data used for training.
+    - X_test : array-like, shape (n_test_samples, n_features)
+        The subset of the data used for testing.
+    - y_train : array-like, shape (n_train_samples,)
+        The subset of the labels used for training.
+    - y_test : array-like, shape (n_test_samples,)
+        The subset of the labels used for testing.
+
+    Example:
+    >>> data = [[0, 1], [2, 3]]
+    >>> labels = [0, 1]
+    >>> split_data(data, labels, test_size=0.5)
+    (array([[0, 1]]), array([[2, 3]]), array([0]), array([1]))
+    """
     X_train, X_test, y_train, y_test = train_test_split(
-        data, labels, test_size = testSize, random_state=42)
+        data, labels, test_size=test_size, random_state=42)
+    
     return X_train, X_test, y_train, y_test
 
-# reduce the time series dimensionality from n to m (n_segments) using 
-# Piecewise Aggregate Approximation. first divide the original time-series 
-# into M equally sized frames (segments) and then compute the mean values for each frame. 
-# The sequence assembled from the mean values is the PAA approximation (i.e., transform) 
-# of the original time-series.
-def reduceTimeSieriesLength(XTrain, XTest, segments):
-    paa = PiecewiseAggregateApproximation(window_size=segments)
-    XTrain = paa.fit_transform(XTrain)
-    XTest = paa.fit_transform(XTest)
-    return XTrain, XTest
+def reduce_time_series_length(X_train, X_test, n_segments):
+    """
+    Reduces the dimensionality of time series data in the training and testing sets using 
+    Piecewise Aggregate Approximation (PAA). This transformation involves dividing each 
+    time series into `n_segments` equal parts (if possible), computing the mean of each 
+    segment, and using these means to represent the original time series.
 
+    Parameters:
+    - X_train : array-like, shape (n_samples, n_timestamps)
+        Training data consisting of multiple time series.
+    - X_test : array-like, shape (n_samples, n_timestamps)
+        Testing data consisting of multiple time series.
+    - n_segments : int
+        The number of segments to divide each time series into, which reduces the time 
+        series length to this number of points.
 
+    Returns:
+    - X_train_paa : array-like, shape (n_samples, n_segments)
+        Transformed training data with reduced dimensionality.
+    - X_test_paa : array-like, shape (n_samples, n_segments)
+        Transformed testing data with reduced dimensionality.
 
-from sklearn.model_selection import cross_val_score
+    Example:
+    >>> from tslearn.generators import random_walks
+    >>> X_train = random_walks(n_ts=50, sz=256, d=1)
+    >>> X_test = random_walks(n_ts=20, sz=256, d=1)
+    >>> X_train_paa, X_test_paa = reduce_time_series_length(X_train, X_test, 10)
+    """
+    # Initialize the PiecewiseAggregateApproximation transformer with the specified number of segments
+    paa = PiecewiseAggregateApproximation(window_size=n_segments)
+    
+    # Transform the training data
+    X_train_paa = paa.fit_transform(X_train)
+    
+    # Transform the testing data
+    X_test_paa = paa.fit_transform(X_test)
+    
+    return X_train_paa, X_test_paa
+
 
 def find_optimal_shapelets(X, y, num_shapelets_range, shapelet_size_range, cv):
     """
@@ -217,191 +423,63 @@ def find_optimal_shapelets(X, y, num_shapelets_range, shapelet_size_range, cv):
 
     return optimal_num_shapelets, optimal_shapelet_size, allScores 
 
-# Example usage:
-# optimal_num_shapelets, optimal_shapelet_size = find_optimal_shapelets(X_train, y_train, 
-#                                                                        num_shapelets_range=range(1, 6), 
-#                                                                        shapelet_size_range=range(3, 8), 
-#                                                                        cv=5)
-# print("Optimal number of shapelets:", optimal_num_shapelets)
-# print("Optimal shapelet size:", optimal_shapelet_size)
-
-# Compute number and length of shapelets for learning shapelets
-# Reference: https://tslearn.readthedocs.io/en/latest/gen_modules/shapelets/tslearn.shapelets.grabocka_params_to_shapelet_size_dict.html
-# It returns Dictionary giving, for each shapelet length, the number of such shapelets to be generated
-def getNumberSizeShapelets(XTrain,YTrain):
-    n_ts, ts_sz = XTrain.shape[:2]
-    n_classes = len(set(YTrain))
-    # Set the number of shapelets per size as done in the original paper
-    shapelet_sizes = grabocka_params_to_shapelet_size_dict(n_ts=n_ts,
-                                                       ts_sz=ts_sz,
-                                                       n_classes=n_classes,
-                                                       l=0.2,
-                                                       r=1)
-    return shapelet_sizes
 
 
-def learningShapelets(XTrain, YTrain, shapeletSizes, iter):
-    t0 = time.time()
-    shpClf = LearningShapelets(n_shapelets_per_size=0.1,random_state=42, tol=0.01)
-    shpClf.fit(XTrain, YTrain)
-    t1 = time.time()
-    totalTime = t1 - t0
-    return shpClf, totalTime
-
-def computeTimeSeriesMeans(data):
-    means = []
-    for d in data:
-        d = d[d!=0]
-        mean = np.mean(d)
-        means.append(mean)
-    return means
-
-def findTimeseriesShapeletDis(nshapelets, XTrain, distances, df):
-    dis = []
-    for l in range(nshapelets):
-        dis.append([])
-    for k, _ in enumerate(XTrain):
-        for j in range(nshapelets):
-            dis[j].append(distances[k][j])
-    for h, diss in enumerate(dis):
-        df['disShapelet'+ str(h+1)] = diss
+def main():
+    if len(sys.argv) < 3:
+        print(f"Error: missing the runs path\nPlease use: python {sys.argv[0]} </path/to/app/runs> <application name>")
+        return
     
+    app_path = sys.argv[1]
+    app_name = sys.argv[2]
+    directories = list_sub_directories(app_path)
+    hb_counts, hb_durations, hb_count_labels, hb_duration_labels, hb_count_means, hb_duration_means, runs = generate_aggregate_data(directories)
 
-def plotShapeletTimeSeriesDis(df, nshapeltes, hbname):
-    labels = df["labels"]
-    y = df[hbname + 'Mean']
-    for i in range(nshapeltes):
-        x = df['disShapelet' + str(i+1)]
-        xGood = []
-        yGood = []
-        xBad = []
-        yBad = []
-        for b, l in enumerate(labels):
-            if l == 'good':
-                xGood.append(x[b])
-                yGood.append(y[b])
-            else:
-                xBad.append(x[b])
-                yBad.append(y[b])
-    
-        plt.scatter(xGood,yGood, color = 'g', label = 'GoodRun')
-        plt.scatter(xBad,yBad, color='r', label = 'BadRun')
-        plt.xlabel('d(x,s' + str(i+1) + ')')
-        plt.ylabel(hbname)
-        plt.legend()
-        plt.title(hbname + 'Time Series Distance to Shapeplet' + str(i+1))
-        plt.savefig(hbname + 'shapelet' + str(i+1) + '.png')
-        plt.close()
+    # Get number of heartbeats
+    num_hbs = get_number_hbs(directories)
 
-def findMostInfluentialShapelets(shWeights):
-    shId = 0
-    max = 0
-    for i, sh in enumerate(shWeights[0]):
-        if(np.max(sh) > max):
-            max = np.max(sh)
-            shId = i+1
-    return shId
+    for i in range(num_hbs):
+        # Process hbcount data
+        data = make_data_fit_shapelet(hb_counts[i])
+        data = data.reshape(data.shape[0], data.shape[1])
+        X_train, X_test, y_train, y_test = split_data(data, hb_count_labels[i], 0.7)
+        X_train, X_test = reduce_time_series_length(X_train, X_test, 2)
+        X_train = MinMaxScaler().fit_transform(X_train)
+        X_test = MinMaxScaler().fit_transform(X_test)
+        
+        # Finding optimal shapelets for hbcount
+        optimal_num_shapelets, optimal_shapelet_size, scores = find_optimal_shapelets(X_train, y_train, 
+                                                                                      num_shapelets_range=[1, 2, 3], 
+                                                                                      shapelet_size_range=[30, 50, 100, 200], 
+                                                                                      cv=2)
+        print(f"hbCount{i+1}: optimal_num_shapelets {optimal_num_shapelets}, optimal_shapelet_size {optimal_shapelet_size}, scores: {scores}")
+        results = results.append({
+            'Heartbeat': f'hbCount{i+1}',
+            'Optimal_Num_Shapelets': optimal_num_shapelets,
+            'Optimal_Shapelet_Size': optimal_shapelet_size
+        }, ignore_index=True)
 
+        # Process hbduration data similarly...
+        data = make_data_fit_shapelet(hb_counts[i])
+        data = data.reshape(data.shape[0], data.shape[1])
+        X_train, X_test, y_train, y_test = split_data(data, hb_count_labels[i], 0.7)
+        X_train, X_test = reduce_time_series_length(X_train, X_test, 2)
+        X_train = MinMaxScaler().fit_transform(X_train)
+        X_test = MinMaxScaler().fit_transform(X_test)
+        
+        # Finding optimal shapelets for hbcount
+        optimal_num_shapelets, optimal_shapelet_size, scores = find_optimal_shapelets(X_train, y_train, 
+                                                                                      num_shapelets_range=[1, 2, 3], 
+                                                                                      shapelet_size_range=[30, 50, 100, 200], 
+                                                                                      cv=2)
+        print(f"hbDuration{i+1}: optimal_num_shapelets {optimal_num_shapelets}, optimal_shapelet_size {optimal_shapelet_size}, scores: {scores}")
+        results = results.append({
+            'Heartbeat': f'hbDuration{i+1}',
+            'Optimal_Num_Shapelets': optimal_num_shapelets,
+            'Optimal_Shapelet_Size': optimal_shapelet_size
+        }, ignore_index=True)
+    results.to_excel(app_name + '_optimal_shapelet.xlsx', index=False)
 
-# main
-
-if len(sys.argv) < 3:
-    print('error: missing the runs path\nPlease use: python3 {} </path/to/app/runs> <application name>'.format(sys.argv[0]))
-    exit(0)
-
-path =  sys.argv[1]  
-appName = sys.argv[2]
-dirPath = listSubDirectories(path)
-hbcounts, hbdurations, labels, hbCountMeans, hbDurationMeans = generateAggregateData(dirPath)
-
-# get number of hbeats
-hbN = getNumberHBs(dirPath)
-
-# find shapelets for each hb (count and duration)
-for i in range(hbN):
-    # hbcount shapelets
-    hbCountDf =pd.DataFrame()
-    hbDurDf =pd.DataFrame()
-    hbCountData = hbcounts[i]
-    hbCountData = makeDataFitShapelet(hbCountData)
-    hbCountData = hbCountData.reshape(hbCountData.shape[0], hbCountData.shape[1])
-    X_train1, X_test1, y_train1, y_test1 = splitData(hbCountData, labels, 0.7)
-    X_train1, X_test1 = reduceTimeSieriesLength(X_train1, X_test1, 2)
-    print(X_train1.shape)
-
-    means = computeTimeSeriesMeans(X_train1)
-    hbCountDf['hbCount' + str(i+1) + "Mean"] = means
-    X_train1 = MinMaxScaler().fit_transform(X_train1)
-    print(X_train1.shape)
-    hbname = 'hbCount' + str(i+1)
-    X_test1 = MinMaxScaler().fit_transform(X_test1)
-    
-    hbCountDf['labels'] = y_train1
-    optimal_num_shapelets, optimal_shapelet_size, scores = find_optimal_shapelets(X_train1, y_train1, 
-                                                                       num_shapelets_range=[1, 2, 3, 4], 
-                                                                       shapelet_size_range=[50, 100, 150, 200], 
-                                                                       cv=2)
-    print(hbname)
-    print("optimal_num_shapelets ", optimal_num_shapelets)
-    print("optimal_shapelet_size ", optimal_shapelet_size)
-    print("scores: ", scores)
-    # shapeletSizes = getNumberSizeShapelets(X_train1, y_train1)
-    # print(X_train1.shape)
-    # hbCountShpClf, time1 = learningShapelets(X_train1, y_train1, shapeletSizes, 800)
-    # # distances = hbCountShpClf.transform(X_train1)
-    # # nshapelets = len(hbCountShpClf.shapelets_)
-    # # ypred = hbCountShpClf.predict(X_train1)
-    # # hbCountDf['predicted'] = ypred
-    # # findTimeseriesShapeletDis(nshapelets, X_train1, distances, hbCountDf)
-    # # hbname = 'hbCount' + str(i+1)
-    # # plotShapeletTimeSeriesDis(hbCountDf, nshapelets, hbname)
-    # # outPutFile = 'hbCount' + str(i+1) + 'shapelets.xlsx'
-    # # hbCountDf.to_excel(outPutFile)
-    # print(time1)
-    # print("HBCount" + str(i+1) + ":",hbCountShpClf.score(X_test1, y_test1))
-    # shapelet_weights = hbCountShpClf.get_weights("shapelets_0_0")
-    # id = findMostInfluentialShapelets(shapelet_weights)
-    # print(id)
-
-    # hbduration shapelets
-    hbname2 = 'hbDuration' + str(i+1)
-    hbDurData = hbdurations[i]
-    hbDurData = makeDataFitShapelet(hbDurData)
-    hbDurData = hbDurData.reshape(hbDurData.shape[0], hbDurData.shape[1])
-    X_train2, X_test2, y_train2, y_test2 = splitData(hbDurData, labels, 0.70)
-    
-    X_train2, X_test2 = reduceTimeSieriesLength(X_train2, X_test2, 2)
-    
-    means2 = computeTimeSeriesMeans(X_train2)
-    X_train2 = MinMaxScaler().fit_transform(X_train2)
-    X_test2 = MinMaxScaler().fit_transform(X_test2)
-    hbDurDf['hbDuration' + str(i+1) + "Mean"] = means2
-    hbDurDf['labels'] = y_train2
-    optimal_num_shapelets, optimal_shapelet_size, scores = find_optimal_shapelets(X_train2, y_train2, 
-                                                                       num_shapelets_range=[1, 2, 3], 
-                                                                       shapelet_size_range=[30, 50, 100, 200], 
-                                                                       cv=2)
-    print(hbname2)
-    print("optimal_num_shapelets ", optimal_num_shapelets)
-    print("optimal_shapelet_size ", optimal_shapelet_size)
-    print("scores: ", scores)
-
-    # shapeletSizes2 = getNumberSizeShapelets(X_train2, y_train2)
-    # hbDurShpClf, time2 = learningShapelets(X_train2, y_train2, shapeletSizes2, 800)
-    # print(hbDurShpClf.coef_[0])
-    # shapelet_size = hbDurShpClf.shapelets_[0]
-    # print(hbDurShpClf.shapelets_[0])
-    # distances2 = hbDurShpClf.transform(X_train2)
-    # ypred2 = hbDurShpClf.predict(X_train2)
-    # hbDurDf['predicted'] = ypred2
-    # print(time2)
-    # print("HBDuration" + str(i+1) + ":",hbDurShpClf.score(X_test2, y_test2))
-    # nshapelets = len(hbDurShpClf.shapelets_)
-    # findTimeseriesShapeletDis(nshapelets, X_train2, distances2, hbDurDf)
-    # hbname2 = 'hbDuration' + str(i+1)
-    # plotShapeletTimeSeriesDis(hbDurDf, nshapelets, hbname2)
-    # outPutFile = appName + 'hbDuration' + str(i+1) + 'shapelets.xlsx'
-    # hbDurDf.to_excel(outPutFile)
-    
-
+if __name__ == "__main__":
+    main()
 
