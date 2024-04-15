@@ -1,13 +1,39 @@
+"""
+This script builds a classification model for APPEKG data using shapelet-based time series classification techniques.
 
-#
-#  The main goal of this script is to build a classification model for APPEKG data (time series data) by a well-known time series classification technique (shapelets). 
-# It first extracts the data from the APPEKG runs.
-# Then it pads the time series with lengths < longest one with zeros to make all-time series the same length.
-# The script reduces time series dimensionality using Piecewise Aggregate Approximation. 
-# Reference: https://tslearn.readthedocs.io/en/latest/gen_modules/piecewise/tslearn.piecewise.PiecewiseAggregateApproximation.html#tslearn.piecewise.PiecewiseAggregateApproximation
-# Then, it applies LearningShapelets from tslearn module to find the most representative shapelets.
-# Reference: https://tslearn.readthedocs.io/en/latest/gen_modules/shapelets/tslearn.shapelets.LearningShapelets.html#tslearn.shapelets.LearningShapelets
-#  
+Overview:
+- The script processes time series data extracted from APPEKG runs, which includes heartbeat
+  metrics collected from various threads.
+- Each thread's heartbeat metrics are treated as individual time series data point.
+- The script first standardizes the length of all time series by padding shorter series with
+  zeros to match the longest series.
+- It then reduces the dimensionality of these time series using Piecewise Aggregate Approximation (PAA)
+  to facilitate more efficient analysis.
+  Reference: https://tslearn.readthedocs.io/en/latest/gen_modules/piecewise/tslearn.piecewise.PiecewiseAggregateApproximation.html
+- Subsequently, the LearningShapelets method from the tslearn module is employed to identify the
+  most representative shapelets, which are crucial features for time series classification.
+  Reference: https://tslearn.readthedocs.io/en/latest/gen_modules/shapelets/tslearn.shapelets.LearningShapelets.html
+- The script outputs a spreadsheet containing the parameters of the shapelets (number and size),
+  F-1 scores, and additional metric data.
+
+Requirements:
+- Before running this script, ensure that the optimal shapelet size and number have been
+ determined using the `find_optimal_shapelet.py` script.
+- The shapelet parameters must be specified before execution.
+
+Execution:
+- Run the script from the command line as follows:
+  python3 /path/to/train_shapelet.py /path/to/application_runs /path/to/misconfig_runs <app_name> /path/to/optimal_parameters.xlsx"
+
+  optimal_parameters.xlsx: is the spreadsheet taht contains the optimal shapelet parameters for each hb mertic
+
+Directory Structure:
+- The 'application_runs' directory for each application should contain subdirectories named 'APPEKG'
+  and 'anomalousRun', which hold the respective types of run data.
+- The 'misconfig_runs' directory for each application should contain the heartbeat data of misconfigured runs.
+  """
+
+
 from sklearn.metrics import f1_score
 from sklearn.preprocessing import MinMaxScaler
 
@@ -32,6 +58,10 @@ import tensorflow as tf
 from tslearn.utils import to_time_series_dataset
 import seaborn as sns
 from sklearn.metrics import confusion_matrix
+
+
+
+
 
 
 
@@ -443,226 +473,169 @@ def plot_shapelet_time_series_distances(df, n_shapelets, hb_name, app_name, df_p
 
 
 
-# main
+def main():
+    if len(sys.argv) != 5:
+        print("Usage: python train_shapelet.py /path/to/application_runs /path/to/misconfig_runs <app_name> optimal_parameters.xlsx")
+        sys.exit(1)
 
-if len(sys.argv) < 3:
-    print('error: missing the runs path\nPlease use: python3 {} </path/to/app/runs> <application name>'.format(sys.argv[0]))
-    exit(0)
+    app_runs_path = sys.argv[1]
+    misconfig_runs_path = sys.argv[2]
+    app_name = sys.argv[3]
+    # Specify the path to your Excel file
+    file_path = sys.argv[4]
+    # Read the Excel file
+    df = pd.read_excel(file_path)
 
-path =  sys.argv[1]  
-path2 = sys.argv[2]
-appName = sys.argv[3]
-dirPath = list_subdirectories(path)
-dirPath2 = list_subdirectories(path2)
-hbcounts, hbdurations, hbCountLabels,hbDurationLabels, hbCountMeans, hbDurationMeans, runs = generate_aggregate_data(dirPath)
-hbcounts2, hbdurations2,hbCountLabels2,hbDurationLabels2, hbCountMeans2, hbDurationMeans2, runs2 = generate_aggregate_data(dirPath2)
-dfNew = pd.DataFrame()
-# get number of hbeats
-hbN = get_number_hbs(dirPath)
-columns = ['Metric', 'Shapelet Size', 'F1-Score', 'Accuracy','Training Time', \
-    'original time series length',  'PAAed time series length', '# training samples', '# test samples']
-df_summury = pd.DataFrame(columns=columns)
-# find shapelets for each hb (count and duration)
-for i in range(hbN):
-    # hbcount shapelets
-    dfNew = pd.DataFrame()
-    hbCountDf =pd.DataFrame()
-    hbCountMisConfigDf =pd.DataFrame()
-    hbDurMisConfigDf =pd.DataFrame()
-    hbDurDf =pd.DataFrame()
-    hbCountData = hbcounts[i]
-    hbCountDataMisConf = hbcounts2[i] 
-    labels = hbCountLabels[i]
+    # Aggregate data from application runs and misconfiguration runs
+    app_data_paths = list_subdirectories(app_runs_path)
+    misconfig_data_paths = list_subdirectories(misconfig_runs_path)
+
+    hb_counts, hb_durations, hbc_labels,hbd_abels, hbc_means, hbd_means, runs = generate_aggregate_data(app_data_paths)
+    misconfig_hb_counts, misconfig_hb_durations, misconfig_hbc_labels, misconfig_hbd_abels, misconfig_hbc_means, misconfig_hbd_means,\
+         misconfig_runs = generate_aggregate_data(misconfig_data_paths)
+
+    number_of_hbs = get_number_hbs(app_data_paths)
+    columns = ['Metric', 'Shapelet Size', 'F1-Score', 'Accuracy','Training Time', \
+        'original time series length',  'PAAed time series length', '# training samples', '# test samples']
     
-    hbCountData = make_data_fit_shapelet(hbCountData)
-    target_length = hbCountData.shape[1]
-    # hbCountDataMisConf2 = make_data_fit_shapelet(hbCountDataMisConf)
-    paddedSeries = pad_series(hbCountDataMisConf, target_length, pad_value=0, pad_start=False)
-    paddedSeries2 = np.array(paddedSeries)
-    # squeezed_array = np.squeeze(paddedSeries)
-    paa = PiecewiseAggregateApproximation(n_segments=1000)
-    reducedMisconfCount = paa.fit_transform(paddedSeries2)
-    X_train1, X_test1, y_train1, y_test1 = split_data(hbCountData, labels, 0.7) 
-    origTSeriesLen = X_train1.shape[1]
-    means = compute_time_series_means(X_test1)
-    meansHBCMisConf = compute_time_series_means(hbCountDataMisConf)
-    hbname = 'HB' + str(i+1) + '-Count'
-    hbCountMisConfigDf[hbname + "Mean"] = meansHBCMisConf
-    X_train1, X_test1 = reduce_time_series_length(X_train1, X_test1, 1000)
-    PAATSeriesLen = X_train1.shape[1]
-    # means = compute_time_series_means(X_train1)
-    hbCountDf[hbname + "Mean"] = means
-    scaler = MinMaxScaler()
-    X_train1 = TimeSeriesScalerMinMax().fit_transform(X_train1)
-    X_test1 = TimeSeriesScalerMinMax().fit_transform(X_test1)
-    hbCountDf['labels'] = y_test1
-    # assign # of shapelets and size for each hb count metric
-    if i == 0:
-        shapeletSizes = {30: 1}
-    elif i == 1:
-        shapeletSizes = {30: 1}
-    # elif i == 2:
-    #     shapeletSizes = {30: 1}
-    # elif i == 3:
-    #     shapeletSizes = {30: 1}
-    # elif i == 4:
-    #     shapeletSizes = {30: 1}
-    # elif i == 5:
-    #     shapeletSizes = {30: 1}
-    # elif i == 6:
-    #     shapeletSizes = {30: 1}
-    # elif i == 7:
-    #     shapeletSizes = {30: 1}
-    # elif i == 8:
-    #     shapeletSizes = {30: 1}
-    # elif i == 9:
-    #     shapeletSizes = {30: 1}
-    # elif i == 10:
-    #     shapeletSizes = {30: 1}
-    # elif i == 11:
-    #     shapeletSizes = {30: 1}
-    # elif i == 12:
-    #     shapeletSizes = {30: 1}
-    # elif i == 13:
-    #     shapeletSizes = {50: 2}
-        
-    # shapeletSizes = getNumberSizeShapelets(X_train1, y_train1)
-    hbCountShpClf, time1 = train_shapelet_classifier(X_train1, y_train1, shapeletSizes, 800)
-    predicted = hbCountShpClf.predict(reducedMisconfCount)
-    dfNew[hbname + 'predicted class'] = predicted
-    hbCountMisConfigDf[hbname + ' predicted'] = predicted
-    meansHBCMisConf = compute_time_series_means(hbCountDataMisConf)
-    distances = hbCountShpClf.transform(X_test1)
-    distancesHBC = hbCountShpClf.transform(reducedMisconfCount)
-    # print(distances)
-    nshapelets = len(hbCountShpClf.shapelets_)
-    plt.figure()
-    for s, shapelet in enumerate(hbCountShpClf.shapelets_):
-        shapelet = TimeSeriesScalerMinMax().fit_transform(shapelet.reshape(1, -1, 1)).flatten()
-        plt.subplot(len(hbCountShpClf.shapelets_), 1, s + 1)
-        plt.plot(shapelet.ravel())
-        plt.title(f'Shapelet {s}')
-        plt.savefig(appName + hbname + 'Shapelets' + str(s) + 'Plot.png')
-        plt.close()
-        with open(appName + hbname + 'Shapelets' + str(s) + '.csv', 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(['shapelet' + str(s)])
-            writer.writerow([shapelet])
+    df_summury = pd.DataFrame(columns=columns)
 
-    ypred = hbCountShpClf.predict(X_test1)
-    hbCountDf['predicted'] = ypred
-    f1 = f1_score(y_test1, ypred, average='macro', pos_label='anomalous')
-    cm = confusion_matrix(y_test1, ypred)
-    
-    new_row = {'Metric': hbname, 'Shapelet Size':shapeletSizes, \
-        'F1-Score': f1, 'Accuracy': hbCountShpClf.score(X_test1, y_test1), 'Training Time': time, \
-        'original time series length': origTSeriesLen, 'PAAed time series length': PAATSeriesLen,\
+    for i in range(number_of_hbs):
+
+        misconfig_df = pd.DataFrame()
+        hb_count_df =pd.DataFrame()
+        misc_hb_count_df =pd.DataFrame()
+        misc_hb_duration_df =pd.DataFrame()
+        hb_duration_df =pd.DataFrame()
+        hb_count_data = hb_counts[i]
+        misconfig_hb_count_data = misconfig_hb_counts[i]
+        labels = hbc_labels[i]
+        hb_count_data = make_data_fit_shapelet(hb_count_data)
+        # make misconfig data same data model length
+        target_length = hb_count_data.shape[1]
+        padded_misc_hb_count_data = pad_series(misconfig_hb_count_data, target_length, pad_value=0, pad_start=False)
+        padded_misc_hb_count_data_arr = np.array(padded_misc_hb_count_data)
+        paa = PiecewiseAggregateApproximation(n_segments=1000)
+        reduced_misconf_hb_count = paa.fit_transform(padded_misc_hb_count_data_arr)
+        X_train1, X_test1, y_train1, y_test1 = split_data(hb_count_data, labels, 0.5) 
+        print(X_train1.shape)
+        hb_count_means = compute_time_series_means(X_test1)
+        misc_hb_count_means = compute_time_series_means(misconfig_hb_count_data)
+        hb_name = 'HB' + str(i+1) + '-Count'
+        misc_hb_count_df[hb_name + "Mean"] = misc_hb_count_means
+        original_tseries_len = X_train1.shape[1]
+        X_train1, X_test1 = reduce_time_series_length(X_train1, X_test1, 1000)
+        print(X_train1.shape)
+        PAAed_tseries_len = X_train1.shape[1]
+        hb_count_df[hb_name + "Mean"] = hb_count_means
+        X_train1 = TimeSeriesScalerMinMax().fit_transform(X_train1)
+        X_test1 = TimeSeriesScalerMinMax().fit_transform(X_test1)
+        hb_count_df['labels'] = y_test1
+        print(df['Optimal_Shapelet_Size'])
+        num_shapelet = df.loc[df['Heartbeat'] == f'hbCount{i+1}', 'Optimal_Num_Shapelets'].values[0]
+        shaplete_size = df.loc[df['Heartbeat'] == f'hbCount{i+1}', 'Optimal_Shapelet_Size'].values[0]
+        print(shaplete_size)
+        shapelet_sizes = {int(shaplete_size): int(num_shapelet)}
+        # shapelet_sizes = {30, 1}
+        print(shapelet_sizes)
+        hbCount_shp_clf, time1 = train_shapelet_classifier(X_train1, y_train1, shapelet_sizes, 800)
+        predicted = hbCount_shp_clf.predict(reduced_misconf_hb_count)
+        misconfig_df[hb_name + 'predicted class'] = predicted
+        misc_hb_count_df[hb_name + ' predicted'] = predicted
+        distances = hbCount_shp_clf.transform(X_test1)
+        hb_count_misc_dis = hbCount_shp_clf.transform(reduced_misconf_hb_count)
+        nshapelets = len(hbCount_shp_clf.shapelets_)
+        plt.figure()
+        for s, shapelet in enumerate(hbCount_shp_clf.shapelets_):
+            shapelet = TimeSeriesScalerMinMax().fit_transform(shapelet.reshape(1, -1, 1)).flatten()
+            plt.subplot(len(hbCount_shp_clf.shapelets_), 1, s + 1)
+            plt.plot(shapelet.ravel())
+            plt.title(f'Shapelet {s}')
+            plt.savefig(app_name + hb_name + 'Shapelets' + str(s) + 'Plot.png')
+            plt.close()
+            with open(app_name + hb_name + 'Shapelets' + str(s) + '.csv', 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['shapelet' + str(s)])
+                writer.writerow([shapelet])
+        ypred = hbCount_shp_clf.predict(X_test1)
+        hb_count_df['predicted'] = ypred
+        f1 = f1_score(y_test1, ypred, average='macro', pos_label='anomalous')
+        new_row = {'Metric': hb_name, 'Shapelet Size':shapelet_sizes, \
+        'F1-Score': f1, 'Accuracy': hbCount_shp_clf.score(X_test1, y_test1), 'Training Time': time1, \
+        'original time series length': original_tseries_len, 'PAAed time series length': PAAed_tseries_len,\
             '# training samples': X_train1.shape[0], '# test samples': X_test1.shape[0]}
-    df_summury = df_summury.append(new_row, ignore_index=True)
-    print(df_summury)
-    assign_shapelet_distances(nshapelets, X_test1, distances, hbCountDf, reducedMisconfCount, distancesHBC, hbCountMisConfigDf)
-    plot_shapelet_time_series_distances(hbCountDf, nshapelets, hbname, appName, hbCountMisConfigDf)
-    outPutFile = appName + hbname + 'shapelets.xlsx'
-    hbCountDf.to_excel(outPutFile)
-    shapelet_weights = hbCountShpClf.get_weights("shapelets_0_0")
-    dfNew.to_excel(appName + hbname + 'predictedMisconfig.xlsx')
+        df_summury = df_summury.append(new_row, ignore_index=True)
+        assign_shapelet_distances(nshapelets, X_test1, distances, hb_count_df, reduced_misconf_hb_count, hb_count_misc_dis, misc_hb_count_df)
+        plot_shapelet_time_series_distances(hb_count_df, nshapelets, hb_name, app_name, misc_hb_count_df)
+        output_file = app_name + hb_name + 'shapelets.xlsx'
+        hb_count_df.to_excel(output_file)
+        misc_hb_count_df.to_excel(app_name + hb_name + 'predicted_misconfig.xlsx')
+        print("finshed hbcount{}",i+1)
 
-    # hbduration shapelets
-    dfNew = pd.DataFrame()
-    hbDurData = hbdurations[i]
-    hbDurDataMisConf = hbdurations2[i] 
-    labels = hbDurationLabels[i]
-    hbDurData = make_data_fit_shapelet(hbDurData)
-    X_train2, X_test2, y_train2, y_test2 = split_data(hbDurData, labels, 0.7)
-    means2 = compute_time_series_means(X_test2)
-    origTSeriesLen = X_train2.shape[1]
-    X_train2, X_test2 = reduce_time_series_length(X_train2, X_test2, 1000)
-    target_length = hbDurData.shape[1]
-    hbDurDataMisConf2 = make_data_fit_shapelet(hbDurDataMisConf)
-    paddedSeriesMisconfigDur = pad_series(hbDurDataMisConf, target_length, pad_value=0, pad_start=False)
-    paddedSeriesDur = np.array(paddedSeriesMisconfigDur)
-    print(paddedSeriesDur.shape)
-    paa = PiecewiseAggregateApproximation(n_segments=1000)
-    reducedMisconfDur = paa.fit_transform(paddedSeriesDur)
-    PAATSeriesLen = X_train2.shape[1]
-    X_train2 = TimeSeriesScalerMinMax().fit_transform(X_train2)
-    X_test2 = TimeSeriesScalerMinMax().fit_transform(X_test2)
-    hbname2 = 'HB' + str(i+1) + '-Duration'
-    hbDurDf[hbname2 + "Mean"] = means2
-    hbDurDf['labels'] = y_test2
-    # assign # of shapelets and size for each hb duration metric
-    if i == 0:
-        shapeletSizes2 = {100: 2}
-    elif i == 1:
-        shapeletSizes2 = {100: 3}
-    # elif i == 2:
-    #     shapeletSizes2 = {200: 3}
-    # elif i == 3:
-    #     shapeletSizes2 = {30:2}
-    # elif i == 4:
-    #     shapeletSizes2 = {30: 3}
-    # elif i == 5:
-    #     shapeletSizes2 = {30: 2}
-    # elif i == 6:
-    #     shapeletSizes2 = {100: 3}
-    # elif i == 7:
-    #     shapeletSizes2 = {30: 2}
-    # elif i == 8:
-    #     shapeletSizes2 = {30: 3}
-    # elif i == 9:
-    #     shapeletSizes2 = {100: 3}
-    # elif i == 1:
-    #     shapeletSizes2 = {30: 3}
-    # elif i == 11:
-    #     shapeletSizes2 = {30: 3}
-    # elif i == 12:
-    #     shapeletSizes2 = {30: 2}
-    # elif i == 13:
-    #     shapeletSizes2 = {100: 2}
-    
-    hbDurShpClf, time2 = train_shapelet_classifier(X_train2, y_train2, shapeletSizes2, 800)
-    predicted = hbDurShpClf.predict(reducedMisconfDur)
-    hbDurMisConfigDf[hbname2 + ' predicted'] = predicted
-    dfNew[hbname2 + 'predicted class'] = predicted
-    meansHBDMisConf = compute_time_series_means(hbDurDataMisConf)
-    hbDurMisConfigDf[hbname2 + "Mean"] = meansHBDMisConf
-    distancesHBD = hbDurShpClf.transform(X_test2)
-    distancesHBDMisConf = hbDurShpClf.transform(reducedMisconfDur)
-    ypred2 = hbDurShpClf.predict(X_test2)
-    # average_f1_score2 = f1_score(X_test2, ypred2, average='macro',labels=np.unique(y_test1))
-    hbDurDf['predicted'] = ypred2
-    f1 = f1_score(y_test2, ypred2, average='macro', pos_label='anomalous')
-    cm2 = confusion_matrix(y_test2, ypred2)
-    cmap = sns.diverging_palette(133, 10, as_cmap=True)  # Green to red
-    new_row = {'Metric': hbname, 'Shapelet Size':shapeletSizes2, \
-        'F1-Score': f1, 'Accuracy': hbCountShpClf.score(X_test1, y_test1), 'Training Time': time, \
-        'original time series length': origTSeriesLen, 'PAAed time series length': PAATSeriesLen,\
+        hb_duration_data = hb_durations[i]
+        misconfig_hb_duration_data = misconfig_hb_durations[i]
+        labels = hbd_abels[i]
+        hb_duration_data = make_data_fit_shapelet(hb_duration_data)
+        # make misconfig data same data model length
+        target_length = hb_duration_data.shape[1]
+        padded_misc_hb_duration_data = pad_series(misconfig_hb_duration_data, target_length, pad_value=0, pad_start=False)
+        padded_misc_hb_duration_data_arr = np.array(padded_misc_hb_duration_data)
+        paa = PiecewiseAggregateApproximation(n_segments=1000)
+        reduced_misconf_hb_duration = paa.fit_transform(padded_misc_hb_duration_data_arr)
+        X_train1, X_test1, y_train1, y_test1 = split_data(hb_count_data, labels, 0.5) 
+        hb_duration_means = compute_time_series_means(X_test1)
+        misc_hb_duration_means = compute_time_series_means(misconfig_hb_duration_data)
+        hb_name = 'HB' + str(i+1) + '-Duration'
+        misc_hb_duration_df[hb_name + "Mean"] = misc_hb_duration_means
+        original_tseries_len = X_train1.shape[1]
+        X_train1, X_test1 = reduce_time_series_length(X_train1, X_test1, 1000)
+        PAAed_tseries_len = X_train1.shape[1]
+        hb_duration_df[hb_name + "Mean"] = hb_duration_means
+        X_train1 = TimeSeriesScalerMinMax().fit_transform(X_train1)
+        X_test1 = TimeSeriesScalerMinMax().fit_transform(X_test1)
+        hb_duration_df['labels'] = y_test1
+        num_shapelet = df.loc[df['Heartbeat'] == f'hbDuration{i+1}', 'Optimal_Num_Shapelets']
+        shaplete_size = df.loc[df['Heartbeat'] == f'hbDuration{i+1}', 'Optimal_Shapelet_Size']
+        shapelet_sizes = {int(shaplete_size): int(num_shapelet)}
+        hbduration_shp_clf, time1 = train_shapelet_classifier(X_train1, y_train1, shapelet_sizes, 800)
+        predicted = hbduration_shp_clf.predict(reduced_misconf_hb_duration)
+        misconfig_df[hb_name + 'predicted class'] = predicted
+        misc_hb_duration_df[hb_name + ' predicted'] = predicted
+        distances = hbduration_shp_clf.transform(X_test1)
+        hb_duration_misc_dis = hbduration_shp_clf.transform(reduced_misconf_hb_duration)
+        nshapelets = len(hbduration_shp_clf.shapelets_)
+        plt.figure()
+        for s, shapelet in enumerate(hbduration_shp_clf.shapelets_):
+            shapelet = TimeSeriesScalerMinMax().fit_transform(shapelet.reshape(1, -1, 1)).flatten()
+            plt.subplot(len(hbduration_shp_clf.shapelets_), 1, s + 1)
+            plt.plot(shapelet.ravel())
+            plt.title(f'Shapelet {s}')
+            plt.savefig(app_name + hb_name + 'Shapelets' + str(s) + 'Plot.png')
+            plt.close()
+            with open(app_name + hb_name + 'Shapelets' + str(s) + '.csv', 'w', newline='') as csvfile:
+                writer = csv.writer(csvfile)
+                writer.writerow(['shapelet' + str(s)])
+                writer.writerow([shapelet])
+        ypred = hbduration_shp_clf.predict(X_test1)
+        hb_duration_df['predicted'] = ypred
+        f1 = f1_score(y_test1, ypred, average='macro', pos_label='anomalous')
+        new_row = {'Metric': hb_name, 'Shapelet Size':shapelet_sizes, \
+        'F1-Score': f1, 'Accuracy': hbduration_shp_clf.score(X_test1, y_test1), 'Training Time': time1, \
+        'original time series length': original_tseries_len, 'PAAed time series length': PAAed_tseries_len,\
             '# training samples': X_train1.shape[0], '# test samples': X_test1.shape[0]}
-    df_summury = df_summury.append(new_row, ignore_index=True)
-    print(df_summury)
-    # print('   average F1 score: ', average_f1_score2)
-    nshapelets = len(hbDurShpClf.shapelets_)
-    for s, shapelet in enumerate(hbDurShpClf.shapelets_):
-        shapelet = TimeSeriesScalerMinMax().fit_transform(shapelet.reshape(1, -1, 1)).flatten()
-        plt.subplot(len(hbDurShpClf.shapelets_), 1, s + 1)
-        plt.plot(shapelet.ravel())
-        plt.title(f'Shapelet {s}')
-        plt.savefig(appName + hbname2 + 'Shapelet' + str(s) + 'Plot.png')
-        plt.close()
-
-        with open(appName + hbname2 + 'Shapelets' + str(s) + '.csv', 'w', newline='') as csvfile:
-            writer = csv.writer(csvfile)
-            writer.writerow(['shapelet' + str(s)])
-            writer.writerow([shapelet])
-    assign_shapelet_distances(nshapelets, X_test2, distancesHBD, hbDurDf, reducedMisconfDur, distancesHBDMisConf, hbDurMisConfigDf)
-    plot_shapelet_time_series_distances(hbDurDf, nshapelets, hbname2, appName, hbDurMisConfigDf)
-  
-    outPutFile = appName + hbname2 + 'shapelets.xlsx'
-    hbDurDf.to_excel(outPutFile)
-    dfNew.to_excel(appName + hbname2 + 'predictedMisconfig.xlsx')
-    df_summury.to_excel(appName + '_shapelets.xlsx')
-
+        df_summury = df_summury.append(new_row, ignore_index=True)
+        assign_shapelet_distances(nshapelets, X_test1, distances, hb_duration_df, reduced_misconf_hb_duration, hb_duration_misc_dis, misc_hb_duration_df)
+        plot_shapelet_time_series_distances(hb_duration_df, nshapelets, hb_name, app_name, misc_hb_duration_df)
+        output_file = app_name + hb_name + 'shapelets.xlsx'
+        hb_duration_df.to_excel(output_file)
+        misc_hb_duration_df.to_excel(app_name + hb_name + 'predicted_misconfig.xlsx')
+    df_summury.to_excel(app_name + '_shapelets.xlsx')
 
     
+if __name__ == "__main__":
+    main()
+
+
+
 
 

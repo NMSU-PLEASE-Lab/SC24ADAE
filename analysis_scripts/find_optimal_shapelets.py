@@ -433,6 +433,7 @@ def main():
     app_path = sys.argv[1]
     app_name = sys.argv[2]
     directories = list_sub_directories(app_path)
+    results = pd.DataFrame()
     hb_counts, hb_durations, hb_count_labels, hb_duration_labels, hb_count_means, hb_duration_means, runs = generate_aggregate_data(directories)
 
     # Get number of heartbeats
@@ -460,9 +461,9 @@ def main():
         }, ignore_index=True)
 
         # Process hbduration data similarly...
-        data = make_data_fit_shapelet(hb_counts[i])
+        data = make_data_fit_shapelet(hb_durations[i])
         data = data.reshape(data.shape[0], data.shape[1])
-        X_train, X_test, y_train, y_test = split_data(data, hb_count_labels[i], 0.7)
+        X_train, X_test, y_train, y_test = split_data(data, hb_duration_labels[i], 0.7)
         X_train, X_test = reduce_time_series_length(X_train, X_test, 2)
         X_train = MinMaxScaler().fit_transform(X_train)
         X_test = MinMaxScaler().fit_transform(X_test)
