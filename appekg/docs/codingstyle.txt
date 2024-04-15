@@ -1,0 +1,28 @@
+
+C Style
+-------
+- CamelCased type definitions (structs must be wrapped in typedef)
+- camelCased variables and functions; no underscores
+- spacing around all operators, except simple for-loop inits (e.g., i=0)
+- 3 space indent, no tab characters anywhere
+- loop and if open curly brace can be on same line, others always on a new line
+- file, function, headers must be Doxygen formatted
+- avoid unnecessary empty lines
+
+
+Python Style
+------------
+- Must use Python 3
+- CamelCased type, class definitions
+- camelCased variables and functions; no underscores
+- spacing around all operators, except simple sub-expressions (e.g., i=0)
+- 4 space indent, no tab characters anywhere
+- file, function, headers must be pydoc? formatted
+- avoid unnecessary empty lines
+
+Relevant Python references
+
+https://peps.python.org/pep-0257/   Docstring Conventions
+https://realpython.com/documenting-python-code/
+https://machinelearningmastery.com/comments-docstrings-and-type-hints-in-python-code/
+

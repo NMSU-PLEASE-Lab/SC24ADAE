@@ -1,0 +1,14 @@
+----------------------------------------------------------
+       name                         | appid | jobid | rank 
+----------------------------------------------------------
+HelloWorld                          | 101   | 51    | 11
+
+BinarySearch                        | 102   | 52    | 12
+
+BinaryVsLinear                      | 103   | 53    | 13
+
+BinaryVsLinearMultithreading        | 104   | 54    | 14
+
+EvenNumbersSum                      | 105   | 55    | 15
+
+DynamicHBGenerator                  | 106   | 56    | 16
