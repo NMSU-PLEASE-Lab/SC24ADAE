@@ -61,10 +61,6 @@ from sklearn.metrics import confusion_matrix
 
 
 
-
-
-
-
 def get_label_from_output(run_directory):
     """
     Determines the label of a run based on keywords found in its output file.
@@ -507,6 +503,7 @@ def main():
         misc_hb_count_df =pd.DataFrame()
         misc_hb_duration_df =pd.DataFrame()
         hb_duration_df =pd.DataFrame()
+        print(f'processing hbcount{i+1}')
         hb_count_data = hb_counts[i]
         misconfig_hb_count_data = misconfig_hb_counts[i]
         labels = hbc_labels[i]
@@ -518,26 +515,20 @@ def main():
         paa = PiecewiseAggregateApproximation(n_segments=1000)
         reduced_misconf_hb_count = paa.fit_transform(padded_misc_hb_count_data_arr)
         X_train1, X_test1, y_train1, y_test1 = split_data(hb_count_data, labels, 0.5) 
-        print(X_train1.shape)
         hb_count_means = compute_time_series_means(X_test1)
         misc_hb_count_means = compute_time_series_means(misconfig_hb_count_data)
         hb_name = 'HB' + str(i+1) + '-Count'
         misc_hb_count_df[hb_name + "Mean"] = misc_hb_count_means
         original_tseries_len = X_train1.shape[1]
         X_train1, X_test1 = reduce_time_series_length(X_train1, X_test1, 1000)
-        print(X_train1.shape)
         PAAed_tseries_len = X_train1.shape[1]
         hb_count_df[hb_name + "Mean"] = hb_count_means
         X_train1 = TimeSeriesScalerMinMax().fit_transform(X_train1)
         X_test1 = TimeSeriesScalerMinMax().fit_transform(X_test1)
         hb_count_df['labels'] = y_test1
-        print(df['Optimal_Shapelet_Size'])
         num_shapelet = df.loc[df['Heartbeat'] == f'hbCount{i+1}', 'Optimal_Num_Shapelets'].values[0]
         shaplete_size = df.loc[df['Heartbeat'] == f'hbCount{i+1}', 'Optimal_Shapelet_Size'].values[0]
-        print(shaplete_size)
         shapelet_sizes = {int(shaplete_size): int(num_shapelet)}
-        # shapelet_sizes = {30, 1}
-        print(shapelet_sizes)
         hbCount_shp_clf, time1 = train_shapelet_classifier(X_train1, y_train1, shapelet_sizes, 800)
         predicted = hbCount_shp_clf.predict(reduced_misconf_hb_count)
         misconfig_df[hb_name + 'predicted class'] = predicted
@@ -570,8 +561,9 @@ def main():
         output_file = app_name + hb_name + 'shapelets.xlsx'
         hb_count_df.to_excel(output_file)
         misc_hb_count_df.to_excel(app_name + hb_name + 'predicted_misconfig.xlsx')
-        print("finshed hbcount{}",i+1)
+        print(f'finshed hbcount{i+1}')
 
+        print(f'processing hbduration{i+1}')
         hb_duration_data = hb_durations[i]
         misconfig_hb_duration_data = misconfig_hb_durations[i]
         labels = hbd_abels[i]
@@ -629,6 +621,7 @@ def main():
         output_file = app_name + hb_name + 'shapelets.xlsx'
         hb_duration_df.to_excel(output_file)
         misc_hb_duration_df.to_excel(app_name + hb_name + 'predicted_misconfig.xlsx')
+        print(f'finshed hbduration{i+1}')
     df_summury.to_excel(app_name + '_shapelets.xlsx')
 
     
